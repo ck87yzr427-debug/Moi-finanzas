@@ -219,7 +219,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.0.2 · Triple persistencia + diagnóstico</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.0.3 · Recuperación de datos corregida</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -524,9 +524,9 @@ let db={
   personalMovements:[],
   transfers:[],
   settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},
-  createdAt:new Date().toISOString(),
-  updatedAt:new Date().toISOString(),
-  schemaVersion:4
+  createdAt:null,
+  updatedAt:null,
+  schemaVersion:5
 };
 let saveQueue=Promise.resolve();
 
@@ -585,9 +585,9 @@ function normalizeDB(x){
   if(!Array.isArray(x.personalMovements)) x.personalMovements=[];
   if(!Array.isArray(x.transfers)) x.transfers=[];
   if(!x.settings) x.settings={consumption:7.5,fuelPrice:1.65,extraKmCost:0};
-  if(!x.createdAt) x.createdAt=new Date().toISOString();
-  if(!x.updatedAt) x.updatedAt=x.createdAt;
-  x.schemaVersion=4;
+  if(!x.createdAt) x.createdAt=null;
+  if(!x.updatedAt) x.updatedAt=x.createdAt||null;
+  x.schemaVersion=5;
   x.projects.forEach(p=>{
     if(p.estimatedHours==null)p.estimatedHours=0;
     if(p.actualHours==null)p.actualHours=0;
@@ -641,12 +641,18 @@ async function cacheSet(value){
   }
 }
 
+function stateWeight(x){
+  if(!x) return -1;
+  return (x.projects?.length||0)+(x.movements?.length||0)+(x.personalMovements?.length||0)+(x.transfers?.length||0);
+}
 function newestState(states){
   return states.filter(Boolean).reduce((best,current)=>{
     if(!best) return current;
     const tb=Date.parse(best.updatedAt||best.createdAt||0)||0;
     const tc=Date.parse(current.updatedAt||current.createdAt||0)||0;
-    return tc>tb?current:best;
+    if(tc>tb) return current;
+    if(tc<tb) return best;
+    return stateWeight(current)>stateWeight(best)?current:best;
   },null);
 }
 
@@ -686,8 +692,11 @@ async function initDB(){
     db=chosen;
   }else{
     db=normalizeDB(db);
+    db.createdAt=new Date().toISOString();
+    db.updatedAt=db.createdAt;
   }
 
+  // Only after recovery has selected the newest real state do we mirror it.
   persistLocalSync();
   await Promise.all([idbSet(db),cacheSet(db)]);
   requestPersistentStorage();
@@ -697,7 +706,7 @@ async function initDB(){
 
 function saveDB(){
   db.updatedAt=new Date().toISOString();
-  db.schemaVersion=4;
+  db.schemaVersion=5;
 
   persistLocalSync();
 
@@ -1315,7 +1324,7 @@ exportCsv.onclick=()=>{
   const csv=rows.map(r=>r.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(",")).join("\n");
   downloadBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),"moi-finanzas-movimientos.csv");
 };
-wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:4};saveDB();}};
+wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:5};saveDB();}};
 saveVehicleSettings.onclick=()=>{
   db.settings={
     consumption:Number(settingConsumption.value||0),
