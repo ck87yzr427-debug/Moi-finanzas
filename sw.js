@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v130-auth-gate-cloud";
+const CACHE = "moi-finanzas-v131-owner-cloud";
 const CORE = [
   "./",
   "./index.html",
