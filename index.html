@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111111">
-  <meta name="app-version" content="1.1.1-hybrid-mfa">
+  <meta name="app-version" content="1.1.2-auth-redirect">
   <title>Moi Finanzas</title>
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -225,7 +225,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.1.1 · Nube híbrida + 2FA</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.1.2 · Confirmación + 2FA</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -254,6 +254,7 @@
           <div class="toolbar" style="margin-top:12px">
             <button id="cloudSignIn" type="button">Entrar</button>
             <button id="cloudSignUp" type="button" class="secondary">Crear cuenta</button>
+            <button id="cloudResendConfirmation" type="button" class="secondary">Reenviar confirmación</button>
             <button id="cloudSignOut" type="button" class="secondary hidden">Cerrar sesión</button>
             <button id="cloudSyncNow" type="button" class="secondary">Sincronizar ahora</button>
           </div>
@@ -264,7 +265,12 @@
           <div id="mfaStatus" class="muted"></div>
           <div id="mfaEnroll" class="hidden" style="margin-top:10px">
             <div id="mfaQr" style="background:#fff;padding:10px;border-radius:12px;width:max-content;max-width:100%"></div>
-            <div class="muted" style="margin-top:8px">Escanea el QR con tu app autenticadora y escribe el código de 6 dígitos.</div>
+            <div class="muted" style="margin-top:8px">Escanea el QR o configura el código manualmente en este mismo iPhone.</div>
+            <label>Clave de configuración</label>
+            <div class="row2">
+              <input id="mfaSecret" readonly autocomplete="off">
+              <button id="copyMfaSecret" type="button" class="secondary">Copiar clave</button>
+            </div>
           </div>
           <label>Código de 6 dígitos</label>
           <input id="mfaCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
@@ -1654,6 +1660,7 @@ if("serviceWorker" in navigator){
 
   // ---- Hybrid Supabase sync + MFA (session-safe) ----
   let cloudClient=null,cloudUser=null,cloudSession=null,cloudTimer=null,cloudBusy=false,pendingMfaFactor=null;
+  const MOI_AUTH_REDIRECT="https://ck87yzr427-debug.github.io/Moi-finanzas/";
   function cloudConfigured(){return !!(window.MOI_SUPABASE?.url&&window.MOI_SUPABASE?.anonKey&&window.supabase?.createClient)}
   function setCloudStatus(msg,state=""){if(!window.cloudStatus)return;cloudStatus.innerHTML='<span class="sync-dot '+state+'"></span>'+escapeHtml(msg)}
   async function validSession(){
@@ -1680,7 +1687,7 @@ if("serviceWorker" in navigator){
     const aal=await getAal();
     if(verified.length){
       pendingMfaFactor=verified[0];mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
-      mfaEnroll.classList.add("hidden");
+      mfaEnroll.classList.add("hidden");if(window.mfaSecret)mfaSecret.value="";
       mfaStatus.textContent=aal.currentLevel==="aal2"?"2FA activo. Esta sesión está verificada.":"2FA activo. Introduce el código actual de tu autenticador para desbloquear la nube.";
     }else if(unverified.length){
       pendingMfaFactor=unverified[0];mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
@@ -1692,7 +1699,7 @@ if("serviceWorker" in navigator){
   }
   async function updateCloudUI(){
     const signed=!!cloudSession;
-    cloudSignOut.classList.toggle("hidden",!signed);cloudSignIn.classList.toggle("hidden",signed);cloudSignUp.classList.toggle("hidden",signed);
+    cloudSignOut.classList.toggle("hidden",!signed);cloudSignIn.classList.toggle("hidden",signed);cloudSignUp.classList.toggle("hidden",signed);cloudResendConfirmation.classList.toggle("hidden",signed);
     cloudEmail.disabled=signed;cloudPassword.disabled=signed;
     setCloudStatus(signed?"Sesión iniciada como "+cloudUser.email+". Verificando seguridad…":"Nube disponible. Inicia sesión para sincronizar.",signed?"good":"");
     await refreshMfaUI();
@@ -1719,17 +1726,28 @@ if("serviceWorker" in navigator){
     const email=cloudEmail.value.trim().toLowerCase(),password=cloudPassword.value;
     if(!email||password.length<12){alert("Introduce un email válido y una contraseña de al menos 12 caracteres.");return}
     setCloudStatus(mode==="signup"?"Creando cuenta…":"Iniciando sesión…","");
-    const res=mode==="signup"?await cloudClient.auth.signUp({email,password}):await cloudClient.auth.signInWithPassword({email,password});
+    const res=mode==="signup"
+      ?await cloudClient.auth.signUp({email,password,options:{emailRedirectTo:MOI_AUTH_REDIRECT}})
+      :await cloudClient.auth.signInWithPassword({email,password});
     if(res.error){cloudSession=null;cloudUser=null;await updateCloudUI();alert(authMessage(res.error));return}
     // A user object alone is NOT a logged-in session. MFA must never run without a bearer access token.
     cloudSession=res.data?.session||null;cloudUser=cloudSession?.user||null;
     if(mode==="signup"&&!cloudSession){
       await updateCloudUI();setCloudStatus("Cuenta creada. Confirma el email y después pulsa Entrar.","good");
-      alert("Cuenta creada. Revisa tu correo y confirma la cuenta. Después vuelve aquí y pulsa Entrar.");return;
+      alert("Cuenta creada. Revisa tu correo y confirma la cuenta. El enlace debe volver a Moi Finanzas, no a localhost. Después pulsa Entrar.");return;
     }
     if(!await validSession()){cloudSession=null;cloudUser=null;await updateCloudUI();alert("Supabase no devolvió una sesión válida. Vuelve a iniciar sesión.");return}
     await updateCloudUI();await guardedSync();
   }
+  async function resendConfirmation(){
+    if(!cloudConfigured()){alert("Supabase no está disponible.");return}
+    const email=cloudEmail.value.trim().toLowerCase();
+    if(!email){alert("Escribe primero tu email.");return}
+    const {error}=await cloudClient.auth.resend({type:"signup",email,options:{emailRedirectTo:MOI_AUTH_REDIRECT}});
+    if(error){alert("No se pudo reenviar el correo: "+authMessage(error));return}
+    alert("Correo de confirmación reenviado. Usa el enlace más reciente.");
+  }
+
   async function guardedSync(){
     if(!await validSession()){cloudSession=null;cloudUser=null;await updateCloudUI();return}
     try{
@@ -1768,7 +1786,7 @@ if("serviceWorker" in navigator){
       if(verified){pendingMfaFactor=verified;await refreshMfaUI();alert("2FA ya está activado. Introduce el código de 6 dígitos.");return}
       for(const f of (list?.totp||[]).filter(x=>x.status!=="verified")){const r=await cloudClient.auth.mfa.unenroll({factorId:f.id});if(r.error)console.warn(r.error)}
       const {data,error}=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});if(error)throw error;
-      pendingMfaFactor=data;mfaEnroll.classList.remove("hidden");mfaQr.innerHTML=data.totp.qr_code;
+      pendingMfaFactor=data;mfaEnroll.classList.remove("hidden");mfaQr.innerHTML=data.totp.qr_code;mfaSecret.value=data.totp.secret||"";
       mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
       mfaStatus.textContent="Escanea el QR con tu app autenticadora y escribe el código de 6 dígitos.";
     }catch(e){alert("No se pudo activar 2FA: "+authMessage(e))}
@@ -1783,15 +1801,16 @@ if("serviceWorker" in navigator){
       const {data:challenge,error:chErr}=await cloudClient.auth.mfa.challenge({factorId:pendingMfaFactor.id});if(chErr)throw chErr;
       const {data:verified,error}=await cloudClient.auth.mfa.verify({factorId:pendingMfaFactor.id,challengeId:challenge.id,code});if(error)throw error;
       if(verified?.access_token){cloudSession={...(cloudSession||{}),...verified};}
-      await validSession();mfaCode.value="";mfaEnroll.classList.add("hidden");await refreshMfaUI();await guardedSync();
+      await validSession();mfaCode.value="";mfaEnroll.classList.add("hidden");mfaSecret.value="";await refreshMfaUI();await guardedSync();
     }catch(e){alert("No se pudo verificar 2FA: "+authMessage(e))}
   }
   function scheduleCloud(){clearTimeout(cloudTimer);cloudTimer=setTimeout(guardedSync,900)}
   const baseSaveDB=saveDB;
   saveDB=function(){const r=baseSaveDB();if(cloudSession&&navigator.onLine)scheduleCloud();return r};
-  cloudSignIn.onclick=()=>cloudLogin("signin");cloudSignUp.onclick=()=>cloudLogin("signup");
+  cloudSignIn.onclick=()=>cloudLogin("signin");cloudSignUp.onclick=()=>cloudLogin("signup");cloudResendConfirmation.onclick=resendConfirmation;
   cloudSignOut.onclick=async()=>{if(cloudClient)await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;pendingMfaFactor=null;cloudPassword.value="";await updateCloudUI()};
   cloudSyncNow.onclick=()=>guardedSync();mfaSetup.onclick=startMfa;mfaVerify.onclick=verifyMfa;
+  copyMfaSecret.onclick=async()=>{if(!mfaSecret.value){alert("Activa 2FA primero para generar la clave.");return}try{await navigator.clipboard.writeText(mfaSecret.value);alert("Clave copiada.");}catch(e){mfaSecret.select();document.execCommand("copy");alert("Clave copiada.");}};
   window.addEventListener("online",()=>{if(cloudSession)guardedSync()});
   initCloud();
 
