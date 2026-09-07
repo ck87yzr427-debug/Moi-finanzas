@@ -748,6 +748,7 @@ let db={
   personalMovements:[],
   transfers:[],
   budgets:[],
+  ownerId:null,
   settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},
   createdAt:null,
   updatedAt:null,
@@ -810,6 +811,7 @@ function normalizeDB(x){
   if(!Array.isArray(x.personalMovements)) x.personalMovements=[];
   if(!Array.isArray(x.transfers)) x.transfers=[];
   if(!Array.isArray(x.budgets)) x.budgets=[];
+  if(!("ownerId" in x)) x.ownerId=null;
   if(!x.settings) x.settings={consumption:7.5,fuelPrice:1.65,extraKmCost:0};
   if(!x.createdAt) x.createdAt=null;
   if(!x.updatedAt) x.updatedAt=x.createdAt||null;
@@ -1550,7 +1552,7 @@ exportCsv.onclick=()=>{
   const csv=rows.map(r=>r.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(",")).join("\n");
   downloadBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),"moi-finanzas-movimientos.csv");
 };
-wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],budgets:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:6};saveDB();}};
+wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],budgets:[],ownerId:cloudUser?.id||null,settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:6};saveDB();}};
 saveVehicleSettings.onclick=()=>{
   db.settings={
     consumption:Number(settingConsumption.value||0),
@@ -1800,6 +1802,7 @@ if("serviceWorker" in navigator){
       setGateStatus("Identidad verificada. Cargando datos…","good");
       await reconcileCloudOnUnlock();
       unlockApp();
+      await updateCloudUI();
       setCloudStatus("Todo sincronizado","good");
       return;
     }
@@ -1905,6 +1908,7 @@ if("serviceWorker" in navigator){
 
   async function pushCloudState(snapshot){
     if(!cloudClient||!cloudUser)return false;
+    snapshot.ownerId=cloudUser.id;
     const {error}=await cloudClient.from("app_states").upsert({
       user_id:cloudUser.id,
       payload:snapshot
@@ -1916,20 +1920,51 @@ if("serviceWorker" in navigator){
   async function reconcileCloudOnUnlock(){
     const aal=await getAal();
     if(aal.currentLevel!=="aal2")return false;
+
     const remote=await fetchCloudState();
-    const local=normalizeDB(cloneState(db));
     const remoteState=remote?.payload?normalizeDB(cloneState(remote.payload)):null;
+    let local=normalizeDB(cloneState(db));
+
+    // Never leak one user's local financial data into another user's account.
+    if(local.ownerId && local.ownerId!==cloudUser.id){
+      if(remoteState){
+        db=remoteState;
+      }else{
+        db=normalizeDB({
+          projects:[],movements:[],personalMovements:[],transfers:[],budgets:[],
+          ownerId:cloudUser.id,
+          settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},
+          createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:6
+        });
+      }
+      db.ownerId=cloudUser.id;
+      persistLocalSync();
+      await Promise.all([idbSet(db),cacheSet(db)]);
+      renderAll();
+      if(!remoteState)await pushCloudState(cloneState(db));
+      return true;
+    }
+
+    // First migration from the old local-only app: claim unowned local state for this verified user.
+    if(!local.ownerId)local.ownerId=cloudUser.id;
+    if(remoteState&&!remoteState.ownerId)remoteState.ownerId=cloudUser.id;
+
     const lw=stateWeight(local),rw=stateWeight(remoteState);
     const lt=stateTime(local),rt=stateTime(remoteState);
 
     if(remoteState && ((lw===0&&rw>0) || rt>lt)){
       db=remoteState;
+      db.ownerId=cloudUser.id;
       persistLocalSync();
       await Promise.all([idbSet(db),cacheSet(db)]);
       renderAll();
       return true;
     }
-    await pushCloudState(local);
+
+    db=local;
+    db.ownerId=cloudUser.id;
+    persistLocalSync();
+    await pushCloudState(cloneState(db));
     return true;
   }
 
