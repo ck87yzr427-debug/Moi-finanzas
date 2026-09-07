@@ -19,20 +19,20 @@ drop policy if exists "Users can delete own finance state" on public.app_states;
 
 create policy "Users can read own finance state" on public.app_states
 for select to authenticated
-using (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2');
+using (auth.uid() = user_id);
 
 create policy "Users can insert own finance state" on public.app_states
 for insert to authenticated
-with check (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2');
+with check (auth.uid() = user_id);
 
 create policy "Users can update own finance state" on public.app_states
 for update to authenticated
-using (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2')
-with check (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2');
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
 
 create policy "Users can delete own finance state" on public.app_states
 for delete to authenticated
-using (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2');
+using (auth.uid() = user_id);
 
 create or replace function public.touch_app_state_updated_at()
 returns trigger language plpgsql security invoker set search_path = public as $$
@@ -44,8 +44,7 @@ for each row execute function public.touch_app_state_updated_at();
 
 -- Producción (Dashboard > Authentication):
 -- Email confirmation: ON
--- Minimum password length: 12+
--- TOTP MFA: ON
--- CAPTCHA/bot protection: ON antes de registro público
--- Redirect URLs: solo dominio oficial y Pages mientras esté en pruebas
--- Nunca usar service_role/secret key en el cliente.
+-- Minimum password length: 12+ for new passwords
+-- CAPTCHA/bot protection: ON before public launch
+-- Redirect URLs: only official Moi Finanzas domains
+-- Never expose service_role/secret keys in the client.
