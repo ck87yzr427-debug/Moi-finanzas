@@ -1809,10 +1809,17 @@ if("serviceWorker" in navigator){
     lockApp();gateLogin.classList.add("hidden");gateMfa.classList.remove("hidden");
     const factors=await listTotp();
     const verified=factors.find(f=>f.status==="verified");
-    pendingMfaFactor=verified||factors[0]||null;
+    const pending=factors.find(f=>f.status!=="verified");
+    pendingMfaFactor=verified||pending||null;
     gateMfaCreate.classList.toggle("hidden",!!verified);
     gateMfaSetup.classList.add("hidden");
-    setGateStatus(verified?"Introduce el código de tu autenticador.":"Configura el segundo factor para continuar.");
+    if(verified){
+      setGateStatus("Introduce el código de 6 dígitos de tu autenticador.");
+    }else if(pending){
+      setGateStatus("La configuración 2FA anterior quedó incompleta. Pulsa “Configurar 2FA” para reiniciarla.");
+    }else{
+      setGateStatus("Configura el segundo factor para continuar.");
+    }
   }
 
   function authMessage(error){
@@ -1821,6 +1828,7 @@ if("serviceWorker" in navigator){
     if(m.includes("invalid login credentials"))return "Email o contraseña incorrectos.";
     if(m.includes("email not confirmed"))return "Debes confirmar tu email antes de entrar.";
     if(m.includes("rate limit"))return "Demasiados intentos. Espera unos minutos.";
+    if(m.includes("friendly name")&&m.includes("already exists"))return "La configuración 2FA anterior quedó incompleta. Pulsa «Configurar 2FA» otra vez para reiniciarla.";
     return raw||"No se pudo completar la autenticación.";
   }
 
@@ -1861,9 +1869,18 @@ if("serviceWorker" in navigator){
     const verified=factors.find(f=>f.status==="verified");
     if(verified){pendingMfaFactor=verified;return;}
     for(const f of factors.filter(x=>x.status!=="verified")){
-      await cloudClient.auth.mfa.unenroll({factorId:f.id}).catch(()=>{});
+      const {error:removeError}=await cloudClient.auth.mfa.unenroll({factorId:f.id});
+      if(removeError)throw removeError;
     }
-    const {data,error}=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});
+    let enroll=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});
+    if(enroll.error && /friendly name.*already exists/i.test(enroll.error.message||"")){
+      const retryFactors=await listTotp();
+      for(const f of retryFactors.filter(x=>x.status!=="verified")){
+        await cloudClient.auth.mfa.unenroll({factorId:f.id});
+      }
+      enroll=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});
+    }
+    const {data,error}=enroll;
     if(error)throw error;
     pendingMfaFactor=data;
     const qr=data.totp.qr_code||"";
