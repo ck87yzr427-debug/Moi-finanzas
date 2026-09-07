@@ -1,7 +1,7 @@
 {
   "name": "Moi Finanzas",
   "short_name": "Moi Finanzas",
-  "id": "/",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
