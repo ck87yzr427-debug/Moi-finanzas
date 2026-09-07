@@ -1,66 +1,51 @@
--- Moi Finanzas 1.1 — backend híbrido mínimo
--- Ejecutar en Supabase SQL Editor una vez creado el proyecto.
-
+-- Moi Finanzas — RLS endurecido + exigencia de MFA (AAL2)
+-- Ejecutar completo en Supabase SQL Editor.
 create table if not exists public.app_states (
   user_id uuid primary key references auth.users(id) on delete cascade,
   payload jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-
 alter table public.app_states enable row level security;
+alter table public.app_states force row level security;
+
+revoke all on table public.app_states from anon;
+revoke all on table public.app_states from public;
+grant select, insert, update, delete on table public.app_states to authenticated;
 
 drop policy if exists "Users can read own finance state" on public.app_states;
-create policy "Users can read own finance state"
-on public.app_states
-for select
-to authenticated
-using (auth.uid() = user_id);
-
 drop policy if exists "Users can insert own finance state" on public.app_states;
-create policy "Users can insert own finance state"
-on public.app_states
-for insert
-to authenticated
-with check (auth.uid() = user_id);
-
 drop policy if exists "Users can update own finance state" on public.app_states;
-create policy "Users can update own finance state"
-on public.app_states
-for update
-to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
-
 drop policy if exists "Users can delete own finance state" on public.app_states;
-create policy "Users can delete own finance state"
-on public.app_states
-for delete
-to authenticated
-using (auth.uid() = user_id);
 
--- No policy is granted to anon. A visitor who is not authenticated cannot
--- read, create, modify, or delete financial data.
+create policy "Users can read own finance state" on public.app_states
+for select to authenticated
+using (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2');
+
+create policy "Users can insert own finance state" on public.app_states
+for insert to authenticated
+with check (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2');
+
+create policy "Users can update own finance state" on public.app_states
+for update to authenticated
+using (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2')
+with check (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2');
+
+create policy "Users can delete own finance state" on public.app_states
+for delete to authenticated
+using (auth.uid() = user_id and (auth.jwt()->>'aal') = 'aal2');
 
 create or replace function public.touch_app_state_updated_at()
-returns trigger
-language plpgsql
-security invoker
-set search_path = public
-as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
+returns trigger language plpgsql security invoker set search_path = public as $$
+begin new.updated_at = now(); return new; end;
 $$;
-
 drop trigger if exists trg_touch_app_state on public.app_states;
-create trigger trg_touch_app_state
-before update on public.app_states
+create trigger trg_touch_app_state before update on public.app_states
 for each row execute function public.touch_app_state_updated_at();
 
--- Recommended Auth configuration in Supabase Dashboard:
--- 1. Require email confirmation for public sign-ups.
--- 2. Minimum password length >= 8 (prefer >= 12 for production).
--- 3. Enable CAPTCHA / bot protection before public launch.
--- 4. Configure allowed redirect URLs only for the official Moi Finanzas domains.
--- 5. Never expose the service_role key in the PWA.
+-- Producción (Dashboard > Authentication):
+-- Email confirmation: ON
+-- Minimum password length: 12+
+-- TOTP MFA: ON
+-- CAPTCHA/bot protection: ON antes de registro público
+-- Redirect URLs: solo dominio oficial y Pages mientras esté en pruebas
+-- Nunca usar service_role/secret key en el cliente.
