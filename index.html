@@ -219,7 +219,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.0 MVP · Personal + Trabajo + Rentabilidad</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.0.1 · Persistencia reforzada</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -503,63 +503,174 @@ const PERSONAL_INCOME_CATEGORIES = [
   "Trabajo cobrado","Paro / prestación","Salario","Ayuda","Devolución","Otro ingreso"
 ];
 
-const dbKey="moi_finanzas_v2";
-const legacyKey="moi_finanzas_v1";
+const dbKey="moi_finanzas_v3";
+const legacyKeys=["moi_finanzas_v2","moi_finanzas_v1"];
 const IDB_NAME="MoiFinanzasDB";
 const IDB_STORE="app";
-let db={projects:[],movements:[],personalMovements:[],transfers:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString()};
+let db={
+  projects:[],
+  movements:[],
+  personalMovements:[],
+  transfers:[],
+  settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},
+  createdAt:new Date().toISOString(),
+  updatedAt:new Date().toISOString(),
+  schemaVersion:3
+};
+let saveQueue=Promise.resolve();
 
 function openIDB(){
   return new Promise((resolve,reject)=>{
-    const req=indexedDB.open(IDB_NAME,1);
-    req.onupgradeneeded=()=>{const d=req.result;if(!d.objectStoreNames.contains(IDB_STORE))d.createObjectStore(IDB_STORE);};
+    const req=indexedDB.open(IDB_NAME,2);
+    req.onupgradeneeded=()=>{
+      const d=req.result;
+      if(!d.objectStoreNames.contains(IDB_STORE)) d.createObjectStore(IDB_STORE);
+    };
     req.onsuccess=()=>resolve(req.result);
     req.onerror=()=>reject(req.error);
+    req.onblocked=()=>reject(new Error("IndexedDB bloqueado"));
   });
 }
+
 async function idbGet(){
   try{
     const d=await openIDB();
-    return await new Promise((resolve,reject)=>{
+    const value=await new Promise((resolve,reject)=>{
       const tx=d.transaction(IDB_STORE,"readonly");
       const r=tx.objectStore(IDB_STORE).get("state");
-      r.onsuccess=()=>resolve(r.result||null); r.onerror=()=>reject(r.error);
+      r.onsuccess=()=>resolve(r.result||null);
+      r.onerror=()=>reject(r.error);
     });
-  }catch(e){return null;}
+    d.close();
+    return value;
+  }catch(e){
+    console.warn("No se pudo leer IndexedDB",e);
+    return null;
+  }
 }
+
 async function idbSet(value){
   try{
     const d=await openIDB();
     await new Promise((resolve,reject)=>{
       const tx=d.transaction(IDB_STORE,"readwrite");
       tx.objectStore(IDB_STORE).put(value,"state");
-      tx.oncomplete=()=>resolve(); tx.onerror=()=>reject(tx.error);
+      tx.oncomplete=()=>resolve();
+      tx.onerror=()=>reject(tx.error);
+      tx.onabort=()=>reject(tx.error||new Error("Transacción abortada"));
     });
-  }catch(e){}
+    d.close();
+    return true;
+  }catch(e){
+    console.warn("No se pudo guardar IndexedDB",e);
+    return false;
+  }
 }
+
 function normalizeDB(x){
-  if(!x || !x.projects || !x.movements) return db;
-  if(!x.settings)x.settings={consumption:7.5,fuelPrice:1.65,extraKmCost:0};
-  if(!x.personalMovements)x.personalMovements=[];
-  if(!x.transfers)x.transfers=[];
-  x.projects.forEach(p=>{if(p.estimatedHours==null)p.estimatedHours=0;if(p.actualHours==null)p.actualHours=0;if(p.targetHourlyRate==null)p.targetHourlyRate=0;});
+  if(!x || typeof x!=="object") return null;
+  if(!Array.isArray(x.projects)) x.projects=[];
+  if(!Array.isArray(x.movements)) x.movements=[];
+  if(!Array.isArray(x.personalMovements)) x.personalMovements=[];
+  if(!Array.isArray(x.transfers)) x.transfers=[];
+  if(!x.settings) x.settings={consumption:7.5,fuelPrice:1.65,extraKmCost:0};
+  if(!x.createdAt) x.createdAt=new Date().toISOString();
+  if(!x.updatedAt) x.updatedAt=x.createdAt;
+  x.schemaVersion=3;
+  x.projects.forEach(p=>{
+    if(p.estimatedHours==null)p.estimatedHours=0;
+    if(p.actualHours==null)p.actualHours=0;
+    if(p.targetHourlyRate==null)p.targetHourlyRate=0;
+  });
   return x;
 }
-async function initDB(){
-  let x=await idbGet();
-  if(!x){
-    try{x=JSON.parse(localStorage.getItem(dbKey) || localStorage.getItem(legacyKey));}catch(e){}
-    if(x) await idbSet(normalizeDB(x));
+
+function localGet(){
+  const keys=[dbKey,...legacyKeys];
+  for(const key of keys){
+    try{
+      const raw=localStorage.getItem(key);
+      if(raw){
+        const parsed=normalizeDB(JSON.parse(raw));
+        if(parsed) return parsed;
+      }
+    }catch(e){
+      console.warn("No se pudo leer localStorage",key,e);
+    }
   }
-  db=normalizeDB(x);
-  try{localStorage.setItem(dbKey,JSON.stringify(db));}catch(e){}
-  renderAll();
+  return null;
 }
-async function saveDB(){
-  try{localStorage.setItem(dbKey,JSON.stringify(db));}catch(e){}
+
+function newerState(a,b){
+  if(!a) return b;
+  if(!b) return a;
+  const ta=Date.parse(a.updatedAt||a.createdAt||0)||0;
+  const tb=Date.parse(b.updatedAt||b.createdAt||0)||0;
+  return ta>=tb?a:b;
+}
+
+function persistLocalSync(){
+  try{
+    localStorage.setItem(dbKey,JSON.stringify(db));
+    return true;
+  }catch(e){
+    console.warn("No se pudo guardar localStorage",e);
+    return false;
+  }
+}
+
+async function requestPersistentStorage(){
+  try{
+    if(navigator.storage && navigator.storage.persist){
+      await navigator.storage.persist();
+    }
+  }catch(e){}
+}
+
+async function initDB(){
+  const localState=localGet();
+  const idbState=normalizeDB(await idbGet());
+  const chosen=newerState(localState,idbState);
+
+  if(chosen){
+    db=chosen;
+  }else{
+    db=normalizeDB(db);
+  }
+
+  persistLocalSync();
   await idbSet(db);
+  requestPersistentStorage();
   renderAll();
 }
+
+function saveDB(){
+  db.updatedAt=new Date().toISOString();
+  db.schemaVersion=3;
+
+  persistLocalSync();
+
+  const snapshot=JSON.parse(JSON.stringify(db));
+  saveQueue=saveQueue
+    .then(()=>idbSet(snapshot))
+    .catch(()=>false);
+
+  renderAll();
+  return saveQueue;
+}
+
+function emergencySave(){
+  try{
+    db.updatedAt=new Date().toISOString();
+    persistLocalSync();
+  }catch(e){}
+}
+
+window.addEventListener("pagehide",emergencySave);
+window.addEventListener("beforeunload",emergencySave);
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="hidden") emergencySave();
+});
 function eur(n){return new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR"}).format(Number(n||0));}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 function today(){return new Date().toISOString().slice(0,10);}
@@ -1107,7 +1218,7 @@ exportCsv.onclick=()=>{
   const csv=rows.map(r=>r.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(",")).join("\n");
   downloadBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),"moi-finanzas-movimientos.csv");
 };
-wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString()};saveDB();}};
+wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:3};saveDB();}};
 saveVehicleSettings.onclick=()=>{
   db.settings={
     consumption:Number(settingConsumption.value||0),
