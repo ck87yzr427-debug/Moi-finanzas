@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v133-mfa-recovery";
+const CACHE = "moi-finanzas-v134-force-refresh";
 const CORE = [
   "./",
   "./index.html",
