@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v111-mfa-sessionfix";
+const CACHE = "moi-finanzas-v112-auth-redirect";
 const CORE = [
   "./",
   "./index.html",
