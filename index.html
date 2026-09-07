@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111111">
-  <meta name="app-version" content="1.3.0-auth-gate-cloud-persistence">
+  <meta name="app-version" content="1.4.0-login-only-cloud">
   <title>Moi Finanzas</title>
   <meta name="moi-build" content="1.3.4">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -76,7 +76,7 @@
     .transfer-note{font-size:12px;color:var(--muted);margin-top:6px}
     @media(max-width:760px){.kpi-row{grid-template-columns:1fr 1fr}}
 
-    /* Security gate: no financial UI is rendered to the user until auth + AAL2 */
+    /* Security gate: no financial UI is rendered to the user until login */
     body.auth-locked{overflow:hidden}
     body.auth-locked .app,body.auth-locked .nav{display:none!important}
     #authGate{display:none;min-height:100dvh;align-items:center;justify-content:center;padding:calc(24px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom));background:var(--bg)}
@@ -94,7 +94,7 @@
 <div id="authGate" aria-live="polite">
   <div class="auth-shell">
     <div class="auth-brand">Moi Finanzas</div>
-    <div class="muted">Tus proyectos, presupuestos y finanzas quedan bloqueados hasta verificar tu identidad.</div>
+    <div class="muted">Tus proyectos, presupuestos y finanzas quedan bloqueados hasta iniciar sesión.</div>
 
     <div id="gateLogin" class="auth-step">
       <label>Email</label>
@@ -108,26 +108,6 @@
       <div class="toolbar" style="margin-top:8px">
         <button id="gateForgot" type="button" class="secondary">Olvidé mi contraseña</button>
         <button id="gateResend" type="button" class="secondary">Reenviar confirmación</button>
-      </div>
-    </div>
-
-    <div id="gateMfa" class="auth-step hidden">
-      <h3>Verificación en dos pasos</h3>
-      <div class="muted">Para acceder a tus datos financieros debes completar el segundo factor. El código NO es la “Clave manual”: abre una app autenticadora (Google Authenticator, Microsoft Authenticator, 1Password, etc.), añade esta cuenta y escribe aquí el código temporal de 6 números que genere.</div>
-      <div id="gateMfaSetup" class="hidden" style="margin-top:12px">
-        <div id="gateMfaQr" style="background:#fff;padding:10px;border-radius:12px;width:max-content;max-width:100%"></div>
-        <label>Clave manual</label>
-        <div class="row2">
-          <input id="gateMfaSecret" readonly>
-          <button id="gateCopyMfaSecret" type="button" class="secondary">Copiar</button>
-        </div>
-      </div>
-      <label>Código de 6 dígitos</label>
-      <input id="gateMfaCode" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="6" placeholder="000000">
-      <div class="toolbar" style="margin-top:12px">
-        <button id="gateMfaVerify" type="button">Verificar</button>
-        <button id="gateMfaCreate" type="button" class="secondary">Configurar 2FA</button>
-        <button id="gateSignOut" type="button" class="secondary">Salir</button>
       </div>
     </div>
 
@@ -283,7 +263,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.3.0 · Acceso protegido + persistencia en nube</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.4.0 · Inicio de sesión + persistencia en nube</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -317,26 +297,6 @@
             <button id="cloudForgotPassword" type="button" class="secondary">Olvidé mi contraseña</button>
             <button id="cloudSignOut" type="button" class="secondary hidden">Cerrar sesión</button>
             <button id="cloudSyncNow" type="button" class="secondary">Sincronizar ahora</button>
-          </div>
-        </div>
-        <div id="mfaPanel" class="section hidden" style="border-top:1px solid var(--line);padding-top:14px">
-          <h3>Verificación en dos pasos (2FA)</h3>
-          <p class="muted">Protege la nube con contraseña + código temporal de una app autenticadora.</p>
-          <div id="mfaStatus" class="muted"></div>
-          <div id="mfaEnroll" class="hidden" style="margin-top:10px">
-            <div id="mfaQr" style="background:#fff;padding:10px;border-radius:12px;width:max-content;max-width:100%"></div>
-            <div class="muted" style="margin-top:8px">Escanea el QR o configura el código manualmente en este mismo iPhone.</div>
-            <label>Clave de configuración</label>
-            <div class="row2">
-              <input id="mfaSecret" readonly autocomplete="off">
-              <button id="copyMfaSecret" type="button" class="secondary">Copiar clave</button>
-            </div>
-          </div>
-          <label>Código de 6 dígitos</label>
-          <input id="mfaCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
-          <div class="toolbar" style="margin-top:10px">
-            <button id="mfaSetup" type="button" class="secondary">Activar 2FA</button>
-            <button id="mfaVerify" type="button" class="hidden">Verificar código</button>
           </div>
         </div>
       </div>
@@ -1730,8 +1690,8 @@ if("serviceWorker" in navigator){
   [finishProjectHours,finishProjectDays].forEach(x=>x.addEventListener("input",updateFinishSummary));
   finishProjectForm.addEventListener("submit",e=>{e.preventDefault();const p=db.projects.find(x=>x.id===finishProjectId.value);if(!p)return;p.status="finalizado";p.end=finishProjectDate.value;p.actualHours=Number(finishProjectHours.value||0);p.actualDays=Number(finishProjectDays.value||0);p.finalNotes=finishProjectNotes.value.trim();saveDB();finishProjectDialog.close();alert("Proyecto finalizado. Moi Finanzas ya ha recalculado el beneficio por hora real.")});
 
-  // ---- Auth gate + cloud-first persistence ----
-  let cloudClient=null,cloudUser=null,cloudSession=null,pendingMfaFactor=null;
+  // ---- Login gate + cloud-first persistence (no MFA) ----
+  let cloudClient=null,cloudUser=null,cloudSession=null;
   let authEvent="INIT",cloudBusy=false,cloudDirty=false,cloudTimer=null,appUnlocked=false;
   const MOI_AUTH_REDIRECT="https://ck87yzr427-debug.github.io/Moi-finanzas/";
 
@@ -1759,6 +1719,7 @@ if("serviceWorker" in navigator){
     document.body.classList.remove("auth-locked");
     renderAll();
   }
+
   async function readSession({verifyUser=true}={}){
     if(!cloudClient)return null;
     const {data,error}=await cloudClient.auth.getSession();
@@ -1776,52 +1737,6 @@ if("serviceWorker" in navigator){
     renderAuthDiagnostics();
     return cloudSession;
   }
-  async function getAal(){
-    if(!await readSession())return {currentLevel:null,nextLevel:null};
-    const {data,error}=await cloudClient.auth.mfa.getAuthenticatorAssuranceLevel();
-    if(error)throw error;
-    return data||{currentLevel:null,nextLevel:null};
-  }
-  async function listTotp(){
-    const {data,error}=await cloudClient.auth.mfa.listFactors();
-    if(error)throw error;
-    return data?.totp||[];
-  }
-  async function updateGate(){
-    if(!cloudConfigured()){
-      lockApp();gateLogin.classList.remove("hidden");gateMfa.classList.add("hidden");
-      setGateStatus("No se pudo cargar Supabase. Comprueba la conexión.","bad");return;
-    }
-    const session=await readSession();
-    if(!session){
-      lockApp();gateLogin.classList.remove("hidden");gateMfa.classList.add("hidden");
-      setGateStatus("Inicia sesión para acceder.");return;
-    }
-    const aal=await getAal();
-    if(aal.currentLevel==="aal2"){
-      gateLogin.classList.add("hidden");gateMfa.classList.add("hidden");
-      setGateStatus("Identidad verificada. Cargando datos…","good");
-      await reconcileCloudOnUnlock();
-      unlockApp();
-      await updateCloudUI();
-      setCloudStatus("Todo sincronizado","good");
-      return;
-    }
-    lockApp();gateLogin.classList.add("hidden");gateMfa.classList.remove("hidden");
-    const factors=await listTotp();
-    const verified=factors.find(f=>f.status==="verified");
-    const pending=factors.find(f=>f.status!=="verified");
-    pendingMfaFactor=verified||pending||null;
-    gateMfaCreate.classList.toggle("hidden",!!verified);
-    gateMfaSetup.classList.add("hidden");
-    if(verified){
-      setGateStatus("Introduce el código de 6 dígitos de tu autenticador.");
-    }else if(pending){
-      setGateStatus("La configuración 2FA anterior quedó incompleta. Pulsa “Configurar 2FA” para reiniciarla.");
-    }else{
-      setGateStatus("Configura el segundo factor para continuar.");
-    }
-  }
 
   function authMessage(error){
     const raw=error?.message||String(error||"");
@@ -1829,7 +1744,6 @@ if("serviceWorker" in navigator){
     if(m.includes("invalid login credentials"))return "Email o contraseña incorrectos.";
     if(m.includes("email not confirmed"))return "Debes confirmar tu email antes de entrar.";
     if(m.includes("rate limit"))return "Demasiados intentos. Espera unos minutos.";
-    if(m.includes("friendly name")&&m.includes("already exists"))return "La configuración 2FA anterior quedó incompleta. Pulsa «Configurar 2FA» otra vez para reiniciarla.";
     return raw||"No se pudo completar la autenticación.";
   }
 
@@ -1839,13 +1753,16 @@ if("serviceWorker" in navigator){
     if(!email)throw new Error("Introduce tu email.");
     if(mode==="signup"&&password.length<12)throw new Error("Para crear cuenta usa una contraseña de al menos 12 caracteres.");
     if(!password)throw new Error("Introduce tu contraseña.");
+
     const res=mode==="signup"
       ?await cloudClient.auth.signUp({email,password,options:{emailRedirectTo:MOI_AUTH_REDIRECT}})
       :await cloudClient.auth.signInWithPassword({email,password});
+
     if(res.error)throw res.error;
     if(mode==="signup"&&!res.data?.session){
       throw new Error("Cuenta creada. Confirma tu email y después vuelve a entrar.");
     }
+
     await readSession();
     authEvent=mode==="signup"?"SIGNUP_OK":"LOGIN_OK";
     await updateGate();
@@ -1857,71 +1774,12 @@ if("serviceWorker" in navigator){
     const {error}=await cloudClient.auth.resend({type:"signup",email,options:{emailRedirectTo:MOI_AUTH_REDIRECT}});
     if(error)throw error;
   }
+
   async function sendRecovery(email){
     email=(email||"").trim().toLowerCase();
     if(!email)throw new Error("Escribe primero tu email.");
     const {error}=await cloudClient.auth.resetPasswordForEmail(email,{redirectTo:MOI_AUTH_REDIRECT});
     if(error)throw error;
-  }
-
-  async function createMfaForGate(){
-    if(!await readSession())throw new Error("La sesión ha caducado.");
-    const factors=await listTotp();
-    const verified=factors.find(f=>f.status==="verified");
-    if(verified){pendingMfaFactor=verified;return;}
-    for(const f of factors.filter(x=>x.status!=="verified")){
-      const {error:removeError}=await cloudClient.auth.mfa.unenroll({factorId:f.id});
-      if(removeError)throw removeError;
-    }
-    let enroll=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});
-    if(enroll.error && /friendly name.*already exists/i.test(enroll.error.message||"")){
-      const retryFactors=await listTotp();
-      for(const f of retryFactors.filter(x=>x.status!=="verified")){
-        await cloudClient.auth.mfa.unenroll({factorId:f.id});
-      }
-      enroll=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});
-    }
-    const {data,error}=enroll;
-    if(error)throw error;
-    pendingMfaFactor=data;
-    const qr=data.totp.qr_code||"";
-    gateMfaQr.replaceChildren();
-    if(qr.startsWith("data:image/")){
-      const img=document.createElement("img");
-      img.src=qr; img.alt="Código QR para configurar 2FA";
-      img.style.cssText="display:block;max-width:210px;width:100%;height:auto";
-      gateMfaQr.appendChild(img);
-    }else if(qr.trim().startsWith("<svg")){
-      gateMfaQr.innerHTML=qr;
-    }
-    gateMfaSecret.value=data.totp.secret||"";
-    gateMfaSetup.classList.remove("hidden");
-    gateMfaCreate.classList.add("hidden");
-    gateMfaCode.value="";
-    gateMfaCode.focus();
-    setGateStatus("Añade la cuenta a tu app autenticadora y escribe el código temporal de 6 números. No pegues la clave manual.","good");
-  }
-
-  async function verifyMfaCode(code){
-    code=(code||"").replace(/\D/g,"");
-    if(!/^\d{6}$/.test(code))throw new Error("Introduce exactamente 6 dígitos.");
-    if(!await readSession())throw new Error("La sesión ha caducado.");
-    if(!pendingMfaFactor){
-      const factors=await listTotp();
-      pendingMfaFactor=factors.find(f=>f.status==="verified")||factors[0];
-    }
-    if(!pendingMfaFactor)throw new Error("Primero configura 2FA.");
-    const {data:challenge,error:chErr}=await cloudClient.auth.mfa.challenge({factorId:pendingMfaFactor.id});
-    if(chErr)throw chErr;
-    const {error}=await cloudClient.auth.mfa.verify({
-      factorId:pendingMfaFactor.id,
-      challengeId:challenge.id,
-      code
-    });
-    if(error)throw error;
-    await readSession();
-    authEvent="AAL2_OK";
-    await updateGate();
   }
 
   function cloneState(x){return JSON.parse(JSON.stringify(x));}
@@ -1948,14 +1806,10 @@ if("serviceWorker" in navigator){
   }
 
   async function reconcileCloudOnUnlock(){
-    const aal=await getAal();
-    if(aal.currentLevel!=="aal2")return false;
-
     const remote=await fetchCloudState();
     const remoteState=remote?.payload?normalizeDB(cloneState(remote.payload)):null;
     let local=normalizeDB(cloneState(db));
 
-    // Never leak one user's local financial data into another user's account.
     if(local.ownerId && local.ownerId!==cloudUser.id){
       if(remoteState){
         db=remoteState;
@@ -1975,7 +1829,6 @@ if("serviceWorker" in navigator){
       return true;
     }
 
-    // First migration from the old local-only app: claim unowned local state for this verified user.
     if(!local.ownerId)local.ownerId=cloudUser.id;
     if(remoteState&&!remoteState.ownerId)remoteState.ownerId=cloudUser.id;
 
@@ -2002,8 +1855,6 @@ if("serviceWorker" in navigator){
     if(cloudBusy||!cloudSession||!cloudUser||!appUnlocked)return;
     cloudBusy=true;
     try{
-      const aal=await getAal();
-      if(aal.currentLevel!=="aal2")return;
       do{
         cloudDirty=false;
         const snapshot=cloneState(db);
@@ -2021,16 +1872,17 @@ if("serviceWorker" in navigator){
   function queueCloudSave(){
     cloudDirty=true;
     clearTimeout(cloudTimer);
-    // Start immediately; debounce only provides a second safety pass.
     flushCloudQueue();
-    cloudTimer=setTimeout(flushCloudQueue,350);
+    cloudTimer=setTimeout(flushCloudQueue,300);
   }
 
   async function keepaliveCloudSave(){
     try{
       if(!cloudSession?.access_token||!cloudUser||!appUnlocked)return;
-      const body=JSON.stringify([{user_id:cloudUser.id,payload:db}]);
-      if(body.length>60000)return; // keepalive payload limit safety
+      const snapshot=cloneState(db);
+      snapshot.ownerId=cloudUser.id;
+      const body=JSON.stringify([{user_id:cloudUser.id,payload:snapshot}]);
+      if(body.length>60000)return;
       fetch(MOI_SUPABASE.url+"/rest/v1/app_states?on_conflict=user_id",{
         method:"POST",
         headers:{
@@ -2045,18 +1897,40 @@ if("serviceWorker" in navigator){
     }catch(e){}
   }
 
+  async function updateGate(){
+    if(!cloudConfigured()){
+      lockApp();
+      setGateStatus("No se pudo cargar Supabase. Comprueba la conexión.","bad");
+      return;
+    }
+    const session=await readSession();
+    if(!session){
+      lockApp();
+      setGateStatus("Inicia sesión para acceder.");
+      return;
+    }
+
+    setGateStatus("Sesión válida. Cargando tus datos…","good");
+    await reconcileCloudOnUnlock();
+    unlockApp();
+    await updateCloudUI();
+    setCloudStatus("Todo sincronizado","good");
+  }
+
   async function initCloud(){
     if(!cloudConfigured()){
       setGateStatus("No se pudo cargar Supabase. Comprueba tu conexión.","bad");
       return;
     }
     cloudClient=supabase.createClient(MOI_SUPABASE.url,MOI_SUPABASE.anonKey,{
-      auth:{persistSession:false,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"moi-finanzas-auth-v3"}
+      auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"moi-finanzas-auth-v4"}
     });
+
     cloudClient.auth.onAuthStateChange((event,session)=>{
       setTimeout(async()=>{
         authEvent=event;
-        cloudSession=session||null;cloudUser=session?.user||null;
+        cloudSession=session||null;
+        cloudUser=session?.user||null;
         if(event==="PASSWORD_RECOVERY"&&session){
           await readSession({verifyUser:false});
           passwordRecoveryDialog.showModal();
@@ -2065,10 +1939,10 @@ if("serviceWorker" in navigator){
         renderAuthDiagnostics();
       },0);
     });
+
     await updateGate();
   }
 
-  // Existing settings-card controls mirror the same auth system.
   async function updateCloudUI(){
     const signed=!!cloudSession;
     cloudSignOut.classList.toggle("hidden",!signed);
@@ -2080,16 +1954,16 @@ if("serviceWorker" in navigator){
     setCloudStatus(signed?"Sesión iniciada como "+cloudUser.email:"Nube disponible");
     renderAuthDiagnostics();
   }
+
   async function guardedSync(){
-    if(!await readSession()){lockApp();await updateGate();return}
-    const aal=await getAal();
-    if(aal.currentLevel!=="aal2"){lockApp();await updateGate();return}
+    if(!await readSession()){
+      lockApp();await updateGate();return;
+    }
     await reconcileCloudOnUnlock();
     unlockApp();
     await flushCloudQueue();
   }
 
-  // Route all data writes to cloud immediately after local persistence.
   const baseSaveDB=saveDB;
   saveDB=function(){
     const r=baseSaveDB();
@@ -2097,36 +1971,17 @@ if("serviceWorker" in navigator){
     return r;
   };
 
-  // Gate actions.
   gateSignIn.onclick=async()=>{try{setGateStatus("Iniciando sesión…");await doLogin("signin",gateEmail.value,gatePassword.value);gatePassword.value=""}catch(e){setGateStatus(authMessage(e),"bad")}};
   gateSignUp.onclick=async()=>{try{setGateStatus("Creando cuenta…");await doLogin("signup",gateEmail.value,gatePassword.value)}catch(e){setGateStatus(authMessage(e),e?.message?.startsWith("Cuenta creada")?"good":"bad")}};
   gateForgot.onclick=async()=>{try{await sendRecovery(gateEmail.value);setGateStatus("Correo de recuperación enviado.","good")}catch(e){setGateStatus(authMessage(e),"bad")}};
   gateResend.onclick=async()=>{try{await sendConfirmation(gateEmail.value);setGateStatus("Correo de confirmación reenviado.","good")}catch(e){setGateStatus(authMessage(e),"bad")}};
-  gateMfaCreate.onclick=async()=>{try{await createMfaForGate()}catch(e){setGateStatus(authMessage(e),"bad")}};
-  gateMfaCode.addEventListener("input",()=>{gateMfaCode.value=gateMfaCode.value.replace(/\\D/g,"").slice(0,6)});
-  gateMfaVerify.onclick=async()=>{try{setGateStatus("Verificando…");await verifyMfaCode(gateMfaCode.value);gateMfaCode.value=""}catch(e){setGateStatus(authMessage(e),"bad")}};
-  // Build 1.3.4: ensure installed PWA adopts security/auth fixes promptly.
-  if("serviceWorker" in navigator){
-    navigator.serviceWorker.getRegistration().then(reg=>reg?.update()).catch(()=>{});
-    navigator.serviceWorker.addEventListener("controllerchange",()=>{
-      if(!sessionStorage.getItem("moi-sw-reloaded")){
-        sessionStorage.setItem("moi-sw-reloaded","1");
-        location.reload();
-      }
-    });
-  }
-  gateSignOut.onclick=async()=>{await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;pendingMfaFactor=null;lockApp();await updateGate()};
-  gateCopyMfaSecret.onclick=async()=>{try{await navigator.clipboard.writeText(gateMfaSecret.value);setGateStatus("Clave copiada.","good")}catch(e){gateMfaSecret.select();document.execCommand("copy");setGateStatus("Clave copiada.","good")}};
 
-  // Settings-card actions.
   cloudSignIn.onclick=async()=>{try{await doLogin("signin",cloudEmail.value,cloudPassword.value);cloudPassword.value=""}catch(e){alert(authMessage(e))}};
   cloudSignUp.onclick=async()=>{try{await doLogin("signup",cloudEmail.value,cloudPassword.value)}catch(e){alert(authMessage(e))}};
   cloudResendConfirmation.onclick=async()=>{try{await sendConfirmation(cloudEmail.value);alert("Correo reenviado.")}catch(e){alert(authMessage(e))}};
   cloudForgotPassword.onclick=async()=>{try{await sendRecovery(cloudEmail.value);alert("Correo de recuperación enviado.")}catch(e){alert(authMessage(e))}};
   cloudSignOut.onclick=async()=>{await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;lockApp();await updateGate()};
   cloudSyncNow.onclick=guardedSync;
-  mfaSetup.onclick=async()=>{lockApp();await updateGate()};
-  mfaVerify.onclick=async()=>{lockApp();await updateGate()};
 
   passwordRecoveryForm.addEventListener("submit",async e=>{
     e.preventDefault();
