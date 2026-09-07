@@ -1841,12 +1841,21 @@ if("serviceWorker" in navigator){
 
     if(!local.ownerId)local.ownerId=cloudUser.id;
 
-    // If a local change was not confirmed in the cloud before the app closed,
-    // finish that upload first. This prevents losing a last-second edit.
+    // If a local change was not confirmed before close, compare revisions.
+    // A stale dirty marker must never overwrite a newer cloud backup.
     if(hasCloudDirty()){
-      db=local;
-      db.ownerId=cloudUser.id;
-      await pushCloudState(cloneState(db));
+      const localTs=Date.parse(local.updatedAt||0)||0;
+      const remoteTs=Date.parse(remoteState?.updatedAt||0)||0;
+
+      if(remoteState && remoteTs>=localTs){
+        db=remoteState;
+        db.ownerId=cloudUser.id;
+      }else{
+        db=local;
+        db.ownerId=cloudUser.id;
+        await pushCloudState(cloneState(db));
+      }
+
       clearCloudDirty();
       persistLocalSync();
       await Promise.all([idbSet(db),cacheSet(db)]);
@@ -1934,6 +1943,7 @@ if("serviceWorker" in navigator){
     }
     unlockApp();
     await updateCloudUI();
+    setCloudStatus("Datos recuperados y verificados en Supabase","good");
   }
 
   async function initCloud(){
