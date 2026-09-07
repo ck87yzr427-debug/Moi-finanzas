@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v7-persistence";
+const CACHE = "moi-finanzas-v8-storage-diagnostics";
 const CORE = [
   "./",
   "./index.html",
@@ -20,7 +20,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE && !k.startsWith("moi-finanzas-data-")).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
