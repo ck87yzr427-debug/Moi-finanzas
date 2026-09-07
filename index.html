@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111111">
-  <meta name="app-version" content="1.4.0-login-only-cloud">
+  <meta name="app-version" content="1.4.1-rpc-persistence">
   <title>Moi Finanzas</title>
   <meta name="moi-build" content="1.3.4">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -263,7 +263,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.4.0 · Inicio de sesión + persistencia en nube</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.4.1 · Inicio de sesión + persistencia segura</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -1786,21 +1786,17 @@ if("serviceWorker" in navigator){
   function stateTime(x){return Date.parse(x?.updatedAt||x?.createdAt||0)||0;}
 
   async function fetchCloudState(){
-    const {data,error}=await cloudClient.from("app_states")
-      .select("payload,updated_at")
-      .eq("user_id",cloudUser.id)
-      .maybeSingle();
+    if(!cloudClient||!cloudUser)return null;
+    const {data,error}=await cloudClient.rpc("get_my_app_state");
     if(error)throw error;
-    return data||null;
+    if(!data)return null;
+    return data;
   }
 
   async function pushCloudState(snapshot){
     if(!cloudClient||!cloudUser)return false;
     snapshot.ownerId=cloudUser.id;
-    const {error}=await cloudClient.from("app_states").upsert({
-      user_id:cloudUser.id,
-      payload:snapshot
-    },{onConflict:"user_id"});
+    const {error}=await cloudClient.rpc("save_my_app_state",{p_payload:snapshot});
     if(error)throw error;
     return true;
   }
@@ -1878,22 +1874,9 @@ if("serviceWorker" in navigator){
 
   async function keepaliveCloudSave(){
     try{
-      if(!cloudSession?.access_token||!cloudUser||!appUnlocked)return;
-      const snapshot=cloneState(db);
-      snapshot.ownerId=cloudUser.id;
-      const body=JSON.stringify([{user_id:cloudUser.id,payload:snapshot}]);
-      if(body.length>60000)return;
-      fetch(MOI_SUPABASE.url+"/rest/v1/app_states?on_conflict=user_id",{
-        method:"POST",
-        headers:{
-          "apikey":MOI_SUPABASE.anonKey,
-          "Authorization":"Bearer "+cloudSession.access_token,
-          "Content-Type":"application/json",
-          "Prefer":"resolution=merge-duplicates"
-        },
-        body,
-        keepalive:true
-      }).catch(()=>{});
+      if(!cloudSession||!cloudUser||!appUnlocked)return;
+      cloudDirty=true;
+      await flushCloudQueue();
     }catch(e){}
   }
 
@@ -1911,10 +1894,15 @@ if("serviceWorker" in navigator){
     }
 
     setGateStatus("Sesión válida. Cargando tus datos…","good");
-    await reconcileCloudOnUnlock();
+    try{
+      await reconcileCloudOnUnlock();
+      setCloudStatus("Todo sincronizado","good");
+    }catch(e){
+      console.warn("Cloud restore failed",e);
+      setCloudStatus("Sesión iniciada. Sincronización pendiente: "+(e?.message||"error"),"bad");
+    }
     unlockApp();
     await updateCloudUI();
-    setCloudStatus("Todo sincronizado","good");
   }
 
   async function initCloud(){
