@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111111">
-  <meta name="app-version" content="1.0-mvp">
+  <meta name="app-version" content="1.1.0-hybrid">
   <title>Moi Finanzas</title>
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,9 +127,15 @@
           <h2>Proyectos</h2>
           <div class="muted">Cada trabajo puede tener ingresos y todos sus gastos asociados.</div>
         </div>
-        <button id="newProject">+ Proyecto</button>
+        <button id="newProject">+ Presupuesto</button>
       </div>
-      <div class="section card" id="projectList"></div>
+      <div class="section card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <div><h2>Presupuestos</h2><div class="muted">Prepara costes, mano de obra e imprevistos antes de aceptar un trabajo.</div></div>
+    </div>
+    <div id="budgetList"></div>
+  </div>
+  <div class="section card" id="projectList"></div>
 
       <div class="section card">
         <h2>Rentabilidad profesional</h2>
@@ -219,7 +225,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.0.3 · Recuperación de datos corregida</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.1.0 · Presupuestos + nube híbrida</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -233,6 +239,24 @@
         <div class="section">
           <h3>Categorías actuales</h3>
           <div id="categoryList"></div>
+        </div>
+      </div>
+
+      <div class="card section" id="cloudCard">
+        <h2>Cuenta y sincronización</h2>
+        <p class="muted">Modo híbrido: copia local inmediata + copia cifrada en la nube cuando inicies sesión.</p>
+        <div id="cloudStatus" class="muted">Comprobando configuración...</div>
+        <div id="cloudAuthForm" style="margin-top:12px">
+          <label>Email</label>
+          <input id="cloudEmail" type="email" autocomplete="email" placeholder="tu@email.com">
+          <label>Contraseña</label>
+          <input id="cloudPassword" type="password" autocomplete="current-password" placeholder="Mínimo 8 caracteres">
+          <div class="toolbar" style="margin-top:12px">
+            <button id="cloudSignIn" type="button">Entrar</button>
+            <button id="cloudSignUp" type="button" class="secondary">Crear cuenta</button>
+            <button id="cloudSignOut" type="button" class="secondary hidden">Cerrar sesión</button>
+            <button id="cloudSyncNow" type="button" class="secondary">Sincronizar ahora</button>
+          </div>
         </div>
       </div>
 
@@ -455,6 +479,111 @@
   </form>
 </dialog>
 
+
+
+<dialog id="budgetDialog">
+  <form method="dialog" class="modal" id="budgetForm">
+    <h2>Preparar presupuesto</h2>
+    <input type="hidden" id="budgetId">
+    <label>Nombre del proyecto</label>
+    <input id="budgetName" required placeholder="Ej. Instalación de claraboya">
+
+    <div class="row2">
+      <div><label>Cliente</label><input id="budgetClient" placeholder="Nombre del cliente"></div>
+      <div><label>Estado</label>
+        <select id="budgetStatus">
+          <option value="borrador">Borrador</option>
+          <option value="enviado">Enviado</option>
+          <option value="aprobado">Aprobado</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row2">
+      <div><label>Inicio previsto</label><input id="budgetStart" type="date" required></div>
+      <div><label>Fin previsto</label><input id="budgetEnd" type="date"></div>
+    </div>
+
+    <div class="row3">
+      <div>
+        <label>Planificar por</label>
+        <select id="budgetTimeUnit">
+          <option value="horas">Horas</option>
+          <option value="dias">Días</option>
+        </select>
+      </div>
+      <div><label>Cantidad prevista</label><input id="budgetTimeQty" type="number" min="0" step="0.25" value="1"></div>
+      <div><label>Horas por día</label><input id="budgetHoursPerDay" type="number" min="1" step="0.5" value="8"></div>
+    </div>
+
+    <label>Objetivo €/hora</label>
+    <input id="budgetHourlyRate" type="number" min="0" step="0.5" value="25">
+
+    <div class="card" style="margin-top:14px;background:#fafafa">
+      <h3>Desplazamientos previstos</h3>
+      <div class="row3">
+        <div><label>Km casa → trabajo (solo ida)</label><input id="budgetDistanceKm" type="number" min="0" step="0.1" placeholder="25"></div>
+        <div><label>Nº de días / viajes</label><input id="budgetTrips" type="number" min="1" step="1" value="1"></div>
+        <div><label>Ida y vuelta</label><select id="budgetRoundTrip"><option value="si">Sí</option><option value="no">Solo ida</option></select></div>
+      </div>
+      <div class="row3">
+        <div><label>Consumo (L/100 km)</label><input id="budgetConsumption" type="number" min="0" step="0.1"></div>
+        <div><label>Precio gasolina (€/L)</label><input id="budgetFuelPrice" type="number" min="0" step="0.001"></div>
+        <div><label>Otros km previstos</label><input id="budgetExtraKm" type="number" min="0" step="0.1"></div>
+      </div>
+      <div id="budgetTravelPreview" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px;background:#fafafa">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div><h3>Costes previstos</h3><div class="muted">Materiales, alquileres, consumibles y otros costes directos.</div></div>
+        <button type="button" class="secondary" id="addBudgetItem">+ Añadir</button>
+      </div>
+      <div id="budgetItems" style="margin-top:10px"></div>
+    </div>
+
+    <div class="row2">
+      <div><label>Imprevistos (%)</label><input id="budgetContingency" type="number" min="0" max="100" step="1" value="10"></div>
+      <div><label>Notas</label><input id="budgetNotes" placeholder="Condiciones, observaciones..."></div>
+    </div>
+
+    <div id="budgetTotals" class="calc-result"></div>
+
+    <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
+      <button type="button" class="secondary" onclick="budgetDialog.close()">Cancelar</button>
+      <button value="default">Guardar presupuesto</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="budgetDetailDialog">
+  <div class="modal">
+    <div id="budgetDetail"></div>
+    <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
+      <button class="secondary" onclick="budgetDetailDialog.close()">Cerrar</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="finishProjectDialog">
+  <form method="dialog" class="modal" id="finishProjectForm">
+    <h2>Finalizar proyecto</h2>
+    <input type="hidden" id="finishProjectId">
+    <div class="row2">
+      <div><label>Fecha real de finalización</label><input id="finishProjectDate" type="date" required></div>
+      <div><label>Horas reales totales</label><input id="finishProjectHours" type="number" min="0" step="0.25" required></div>
+    </div>
+    <div class="row2">
+      <div><label>Días reales</label><input id="finishProjectDays" type="number" min="0" step="0.25"></div>
+      <div><label>Notas finales</label><input id="finishProjectNotes" placeholder="Incidencias, retrasos, aprendizajes..."></div>
+    </div>
+    <div id="finishProjectSummary" class="calc-result"></div>
+    <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
+      <button type="button" class="secondary" onclick="finishProjectDialog.close()">Cancelar</button>
+      <button value="default">Finalizar y calcular</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="transferDialog">
   <form method="dialog" class="modal" id="transferForm">
@@ -1361,5 +1490,196 @@ if("serviceWorker" in navigator){
   navigator.serviceWorker.register("./sw.js").then(reg=>reg.update().catch(()=>{})).catch(()=>{});
 }
 </script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./supabase-config.js"></script>
+<script>
+(function(){
+  const baseNormalizeDB=normalizeDB;
+  normalizeDB=function(x){
+    x=baseNormalizeDB(x);
+    if(!x) return x;
+    if(!Array.isArray(x.budgets)) x.budgets=[];
+    return x;
+  };
+  if(!Array.isArray(db.budgets)) db.budgets=[];
+
+  const style=document.createElement("style");
+  style.textContent=
+    ".budget-row{padding:14px 0;border-bottom:1px solid var(--line)}"+
+    ".budget-row:last-child{border-bottom:0}"+
+    ".budget-item{display:grid;grid-template-columns:1.5fr .7fr .8fr 1fr auto;gap:8px;align-items:end;margin:8px 0}"+
+    ".sync-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#9ca3af;margin-right:6px}"+
+    ".sync-dot.good{background:#137a3d}.sync-dot.bad{background:#b42318}"+
+    "@media(max-width:760px){.budget-item{grid-template-columns:1fr 1fr}.budget-item .wide{grid-column:1/-1}}";
+  document.head.appendChild(style);
+
+  function budgetHours(b){
+    const qty=Number(b.timeQty||0);
+    return b.timeUnit==="dias"?qty*Number(b.hoursPerDay||8):qty;
+  }
+  function budgetTravel(b){
+    const distance=Number(b.distanceKm||0);
+    const trips=Math.max(1,Number(b.trips||1));
+    const factor=b.roundTrip==="no"?1:2;
+    const totalKm=distance*trips*factor+Number(b.extraKm||0);
+    const consumption=Number(b.consumption||db.settings?.consumption||0);
+    const fuelPrice=Number(b.fuelPrice||db.settings?.fuelPrice||0);
+    const liters=totalKm*consumption/100;
+    const fuelCost=liters*fuelPrice;
+    const wear=totalKm*Number(db.settings?.extraKmCost||0);
+    return {totalKm,liters,fuelCost,wear,total:fuelCost+wear};
+  }
+  function budgetItemsTotal(b){return (b.items||[]).reduce((a,i)=>a+Number(i.qty||0)*Number(i.unitPrice||0),0)}
+  function budgetCalc(b){
+    const travel=budgetTravel(b);
+    const direct=budgetItemsTotal(b)+travel.total;
+    const labor=budgetHours(b)*Number(b.hourlyRate||0);
+    const base=direct+labor;
+    const contingency=direct*Number(b.contingencyPct||0)/100;
+    return {travel,direct,labor,base,contingency,recommended:base+contingency};
+  }
+
+  let editingItems=[];
+  function itemRow(item={},index){
+    const units=["unidad","día","hora","m","m²","litro","kg","otro"];
+    return '<div class="budget-item" data-index="'+index+'">'+
+      '<div class="wide"><label>Concepto</label><input class="bi-name" value="'+escapeHtml(item.name||"")+'" placeholder="Ej. Ventana"></div>'+
+      '<div><label>Cantidad</label><input class="bi-qty" type="number" min="0" step="0.01" value="'+Number(item.qty||1)+'"></div>'+
+      '<div><label>Unidad</label><select class="bi-unit">'+units.map(u=>'<option '+(u===(item.unit||"unidad")?'selected':'')+'>'+u+'</option>').join("")+'</select></div>'+
+      '<div><label>Precio/u (€)</label><input class="bi-price" type="number" min="0" step="0.01" value="'+Number(item.unitPrice||0)+'"></div>'+
+      '<div><button type="button" class="danger bi-remove">×</button></div>'+
+    '</div>';
+  }
+  function renderEditingItems(){
+    budgetItems.innerHTML=editingItems.length?editingItems.map(itemRow).join(""):'<div class="empty">Añade materiales o costes previstos.</div>';
+    budgetItems.querySelectorAll(".budget-item").forEach(row=>{
+      const idx=Number(row.dataset.index);
+      row.querySelector(".bi-name").oninput=e=>{editingItems[idx].name=e.target.value;updateBudgetTotals()};
+      row.querySelector(".bi-qty").oninput=e=>{editingItems[idx].qty=Number(e.target.value||0);updateBudgetTotals()};
+      row.querySelector(".bi-unit").onchange=e=>{editingItems[idx].unit=e.target.value;updateBudgetTotals()};
+      row.querySelector(".bi-price").oninput=e=>{editingItems[idx].unitPrice=Number(e.target.value||0);updateBudgetTotals()};
+      row.querySelector(".bi-remove").onclick=()=>{editingItems.splice(idx,1);renderEditingItems();updateBudgetTotals()};
+    });
+  }
+  function readBudgetDraft(){
+    return {
+      id:budgetId.value||uid(),name:budgetName.value.trim(),client:budgetClient.value.trim(),status:budgetStatus.value,
+      start:budgetStart.value,end:budgetEnd.value,timeUnit:budgetTimeUnit.value,timeQty:Number(budgetTimeQty.value||0),
+      hoursPerDay:Number(budgetHoursPerDay.value||8),hourlyRate:Number(budgetHourlyRate.value||0),
+      distanceKm:Number(budgetDistanceKm.value||0),trips:Number(budgetTrips.value||1),roundTrip:budgetRoundTrip.value,
+      consumption:Number(budgetConsumption.value||0),fuelPrice:Number(budgetFuelPrice.value||0),extraKm:Number(budgetExtraKm.value||0),
+      contingencyPct:Number(budgetContingency.value||0),notes:budgetNotes.value.trim(),items:editingItems.map(x=>({...x})),
+      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()
+    };
+  }
+  function updateBudgetTotals(){
+    if(!window.budgetTotals) return;
+    const b=readBudgetDraft(),c=budgetCalc(b);
+    budgetTravelPreview.innerHTML='<div class="row3"><div><div class="muted">Km totales</div><strong>'+c.travel.totalKm.toFixed(1)+' km</strong></div><div><div class="muted">Combustible</div><strong>'+c.travel.liters.toFixed(2)+' L</strong></div><div><div class="muted">Desplazamiento</div><strong>'+eur(c.travel.total)+'</strong></div></div>';
+    budgetTotals.innerHTML=
+      '<div class="muted">Presupuesto con valores añadidos</div><div class="calc-big">'+eur(c.base)+'</div>'+
+      '<div class="muted">Materiales/costes '+eur(budgetItemsTotal(b))+' · Desplazamiento '+eur(c.travel.total)+' · Mano de obra '+eur(c.labor)+'</div>'+
+      '<hr style="border:0;border-top:1px solid var(--line);margin:12px 0">'+
+      '<div class="muted">Recomendación con '+Number(b.contingencyPct||0)+'% de imprevistos sobre costes directos</div><div class="calc-big good">'+eur(c.recommended)+'</div>'+
+      '<div class="muted">Reserva para imprevistos: '+eur(c.contingency)+'</div>';
+  }
+  function openBudget(){
+    budgetForm.reset();budgetId.value="";budgetStart.value=today();budgetTimeUnit.value="horas";budgetTimeQty.value=1;budgetHoursPerDay.value=8;
+    budgetHourlyRate.value=25;budgetTrips.value=1;budgetRoundTrip.value="si";budgetConsumption.value=db.settings?.consumption||7.5;budgetFuelPrice.value=db.settings?.fuelPrice||1.65;budgetContingency.value=10;
+    editingItems=[];renderEditingItems();updateBudgetTotals();budgetDialog.showModal();
+  }
+  function editBudget(id){
+    const b=db.budgets.find(x=>x.id===id);if(!b)return;
+    budgetId.value=b.id;budgetName.value=b.name;budgetClient.value=b.client||"";budgetStatus.value=b.status||"borrador";budgetStart.value=b.start||today();budgetEnd.value=b.end||"";
+    budgetTimeUnit.value=b.timeUnit||"horas";budgetTimeQty.value=b.timeQty||0;budgetHoursPerDay.value=b.hoursPerDay||8;budgetHourlyRate.value=b.hourlyRate||0;
+    budgetDistanceKm.value=b.distanceKm||0;budgetTrips.value=b.trips||1;budgetRoundTrip.value=b.roundTrip||"si";budgetConsumption.value=b.consumption||db.settings?.consumption||7.5;
+    budgetFuelPrice.value=b.fuelPrice||db.settings?.fuelPrice||1.65;budgetExtraKm.value=b.extraKm||0;budgetContingency.value=b.contingencyPct||10;budgetNotes.value=b.notes||"";
+    editingItems=(b.items||[]).map(x=>({...x}));renderEditingItems();updateBudgetTotals();budgetDialog.showModal();
+  }
+  function renderBudgets(){
+    if(!window.budgetList)return;
+    const budgets=(db.budgets||[]).slice().sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""));
+    budgetList.innerHTML=budgets.length?budgets.map(b=>{const c=budgetCalc(b);return '<div class="budget-row"><div style="display:flex;justify-content:space-between;gap:10px"><div><strong>'+escapeHtml(b.name)+'</strong><div class="muted">'+escapeHtml(b.client||"Sin cliente")+' · '+escapeHtml(b.start||"")+'</div><span class="pill">'+escapeHtml(b.status||"borrador")+'</span><span class="pill">Base '+eur(c.base)+'</span><span class="pill">Recomendado '+eur(c.recommended)+'</span></div><div><button class="secondary small" onclick="showBudget(\''+b.id+'\')">Ver</button></div></div></div>'}).join(""):'<div class="empty">Todavía no hay presupuestos.</div>';
+  }
+  window.showBudget=function(id){
+    const b=db.budgets.find(x=>x.id===id);if(!b)return;const c=budgetCalc(b);
+    budgetDetail.innerHTML='<div class="muted">'+escapeHtml(b.client||"")+'</div><h2>'+escapeHtml(b.name)+'</h2>'+
+      '<div class="kpi-row"><div><div class="muted">Costes directos</div><strong>'+eur(c.direct)+'</strong></div><div><div class="muted">Mano de obra</div><strong>'+eur(c.labor)+'</strong></div><div><div class="muted">Horas previstas</div><strong>'+budgetHours(b).toFixed(1)+' h</strong></div></div>'+
+      '<div class="calc-result"><div class="muted">Presupuesto base</div><div class="calc-big">'+eur(c.base)+'</div><div class="muted">Recomendado con imprevistos</div><div class="calc-big good">'+eur(c.recommended)+'</div></div>'+
+      '<h3 style="margin-top:14px">Costes previstos</h3>'+((b.items||[]).length?(b.items||[]).map(i=>'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)"><span>'+escapeHtml(i.name)+' · '+Number(i.qty||0)+' '+escapeHtml(i.unit||"")+'</span><strong>'+eur(Number(i.qty||0)*Number(i.unitPrice||0))+'</strong></div>').join(""):'<div class="empty">Sin materiales añadidos.</div>')+
+      '<div class="toolbar" style="margin-top:14px"><button onclick="createProjectFromBudget(\''+b.id+'\',\'recommended\')">Aprobar y crear proyecto · '+eur(c.recommended)+'</button><button class="secondary" onclick="createProjectFromBudget(\''+b.id+'\',\'base\')">Crear con base · '+eur(c.base)+'</button><button class="secondary" onclick="budgetDetailDialog.close();editBudget(\''+b.id+'\')">Editar</button></div>';
+    budgetDetailDialog.showModal();
+  };
+  window.createProjectFromBudget=function(id,mode){
+    const b=db.budgets.find(x=>x.id===id);if(!b)return;const c=budgetCalc(b);
+    if((db.projects||[]).some(p=>p.budgetId===id)){alert("Este presupuesto ya tiene un proyecto creado.");return;}
+    const p={id:uid(),budgetId:b.id,name:b.name,client:b.client||"",status:"activo",start:b.start||today(),end:"",
+      revenue:mode==="recommended"?c.recommended:c.base,distanceKm:b.distanceKm||0,trips:b.trips||1,roundTrip:b.roundTrip||"si",
+      consumption:b.consumption||db.settings?.consumption||0,fuelPrice:b.fuelPrice||db.settings?.fuelPrice||0,extraKm:b.extraKm||0,
+      estimatedOtherCosts:budgetItemsTotal(b),estimatedHours:budgetHours(b),targetHourlyRate:b.hourlyRate||0,actualHours:0,actualDays:0,
+      plannedItems:(b.items||[]).map(x=>({...x})),notes:"Creado desde presupuesto "+b.id};
+    db.projects.push(p);b.status="aprobado";b.convertedAt=new Date().toISOString();saveDB();budgetDetailDialog.close();alert("Proyecto creado. Ya puedes registrar gastos reales durante la ejecución.");
+  };
+
+  budgetForm.addEventListener("submit",e=>{e.preventDefault();const b=readBudgetDraft();const i=db.budgets.findIndex(x=>x.id===b.id);if(i>=0){b.createdAt=db.budgets[i].createdAt||b.createdAt;db.budgets[i]=b}else db.budgets.push(b);budgetDialog.close();saveDB()});
+  addBudgetItem.onclick=()=>{editingItems.push({name:"",qty:1,unit:"unidad",unitPrice:0});renderEditingItems();updateBudgetTotals()};
+  [budgetTimeUnit,budgetTimeQty,budgetHoursPerDay,budgetHourlyRate,budgetDistanceKm,budgetTrips,budgetRoundTrip,budgetConsumption,budgetFuelPrice,budgetExtraKm,budgetContingency].forEach(el=>{el.addEventListener("input",updateBudgetTotals);el.addEventListener("change",updateBudgetTotals)});
+
+  const baseRenderAll=renderAll;
+  renderAll=function(){baseRenderAll();if(!Array.isArray(db.budgets))db.budgets=[];renderBudgets()};
+  newProject.onclick=openBudget;
+
+  const baseShowProject=showProject;
+  showProject=function(id){baseShowProject(id);const p=db.projects.find(x=>x.id===id);if(p&&p.status!=="finalizado"){const bar=projectDetail.querySelector(".toolbar");if(bar){const btn=document.createElement("button");btn.className="secondary";btn.textContent="Finalizar proyecto";btn.onclick=()=>{projectDetailDialog.close();openFinishProject(id)};bar.appendChild(btn)}}};
+  window.openFinishProject=function(id){const p=db.projects.find(x=>x.id===id);if(!p)return;finishProjectForm.reset();finishProjectId.value=id;finishProjectDate.value=today();finishProjectHours.value=p.actualHours||"";finishProjectDays.value=p.actualDays||"";updateFinishSummary();finishProjectDialog.showModal()};
+  function updateFinishSummary(){const p=db.projects.find(x=>x.id===finishProjectId.value);if(!p)return;const hours=Number(finishProjectHours.value||0);const pr=profit(p);finishProjectSummary.innerHTML='<div class="muted">Beneficio real actual</div><div class="calc-big">'+eur(pr)+'</div><div class="muted">Beneficio por hora con '+hours+' h reales</div><div class="calc-big '+(pr>=0?'good':'bad')+'">'+(hours>0?eur(pr/hours)+"/h":"—")+'</div>'}
+  [finishProjectHours,finishProjectDays].forEach(x=>x.addEventListener("input",updateFinishSummary));
+  finishProjectForm.addEventListener("submit",e=>{e.preventDefault();const p=db.projects.find(x=>x.id===finishProjectId.value);if(!p)return;p.status="finalizado";p.end=finishProjectDate.value;p.actualHours=Number(finishProjectHours.value||0);p.actualDays=Number(finishProjectDays.value||0);p.finalNotes=finishProjectNotes.value.trim();saveDB();finishProjectDialog.close();alert("Proyecto finalizado. Moi Finanzas ya ha recalculado el beneficio por hora real.")});
+
+  // ---- Hybrid Supabase sync ----
+  let cloudClient=null,cloudUser=null,cloudTimer=null,cloudBusy=false;
+  function cloudConfigured(){return !!(window.MOI_SUPABASE&&MOI_SUPABASE.url&&MOI_SUPABASE.anonKey&&window.supabase)}
+  function setCloudStatus(msg,state=""){if(!window.cloudStatus)return;cloudStatus.innerHTML='<span class="sync-dot '+state+'"></span>'+escapeHtml(msg)}
+  async function initCloud(){
+    if(!cloudConfigured()){setCloudStatus("Nube preparada, pendiente de configurar Supabase.");return}
+    cloudClient=supabase.createClient(MOI_SUPABASE.url,MOI_SUPABASE.anonKey,{auth:{persistSession:true,autoRefreshToken:true}});
+    const {data}=await cloudClient.auth.getSession();cloudUser=data.session?.user||null;updateCloudUI();
+    cloudClient.auth.onAuthStateChange((_e,session)=>{cloudUser=session?.user||null;updateCloudUI();if(cloudUser)syncCloud()});
+    if(cloudUser) await syncCloud();
+  }
+  function updateCloudUI(){if(!cloudConfigured())return;cloudSignOut.classList.toggle("hidden",!cloudUser);cloudSignIn.classList.toggle("hidden",!!cloudUser);cloudSignUp.classList.toggle("hidden",!!cloudUser);setCloudStatus(cloudUser?"Conectado como "+cloudUser.email:"Nube disponible. Inicia sesión para sincronizar.",cloudUser?"good":"")}
+  async function cloudLogin(mode){
+    if(!cloudConfigured()){alert("Supabase todavía no está configurado.");return}
+    const email=cloudEmail.value.trim(),password=cloudPassword.value;if(!email||password.length<8){alert("Introduce email y una contraseña de al menos 8 caracteres.");return}
+    const res=mode==="signup"?await cloudClient.auth.signUp({email,password}):await cloudClient.auth.signInWithPassword({email,password});
+    if(res.error)alert(res.error.message);else{cloudUser=res.data.user||res.data.session?.user||null;updateCloudUI();if(cloudUser)await syncCloud()}
+  }
+  async function syncCloud(){
+    if(!cloudClient||!cloudUser||cloudBusy)return;cloudBusy=true;setCloudStatus("Sincronizando...","");
+    try{
+      const {data,error}=await cloudClient.from("app_states").select("payload,updated_at").eq("user_id",cloudUser.id).maybeSingle();
+      if(error)throw error;
+      const localTs=Date.parse(db.updatedAt||0)||0,cloudTs=Date.parse(data?.updated_at||0)||0;
+      if(data?.payload&&cloudTs>localTs){
+        const incoming=normalizeDB(data.payload);if(incoming){db=incoming;persistLocalSync();await Promise.all([idbSet(db),cacheSet(db)]);renderAll()}
+      }else{
+        const {error:upErr}=await cloudClient.from("app_states").upsert({user_id:cloudUser.id,payload:db,updated_at:new Date().toISOString()},{onConflict:"user_id"});if(upErr)throw upErr;
+      }
+      setCloudStatus("Todo sincronizado · "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),"good");
+    }catch(e){console.warn(e);setCloudStatus("Sin sincronizar: "+e.message,"bad")}finally{cloudBusy=false}
+  }
+  function scheduleCloud(){clearTimeout(cloudTimer);cloudTimer=setTimeout(syncCloud,900)}
+  const baseSaveDB=saveDB;
+  saveDB=function(){const r=baseSaveDB();if(cloudUser&&navigator.onLine)scheduleCloud();return r};
+  cloudSignIn.onclick=()=>cloudLogin("signin");cloudSignUp.onclick=()=>cloudLogin("signup");cloudSignOut.onclick=async()=>{if(cloudClient)await cloudClient.auth.signOut();cloudUser=null;updateCloudUI()};cloudSyncNow.onclick=()=>syncCloud();window.addEventListener("online",()=>{if(cloudUser)syncCloud()});
+  initCloud();
+
+  // Re-render after extension initialization.
+  if(!Array.isArray(db.budgets))db.budgets=[];
+  renderBudgets();
+})();
+</script>
+
 </body>
 </html>
