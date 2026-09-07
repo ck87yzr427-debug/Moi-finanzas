@@ -112,7 +112,7 @@
 
     <div id="gateMfa" class="auth-step hidden">
       <h3>Verificación en dos pasos</h3>
-      <div class="muted">Para acceder a tus datos financieros debes completar el segundo factor.</div>
+      <div class="muted">Para acceder a tus datos financieros debes completar el segundo factor. El código NO es la “Clave manual”: abre una app autenticadora (Google Authenticator, Microsoft Authenticator, 1Password, etc.), añade esta cuenta y escribe aquí el código temporal de 6 números que genere.</div>
       <div id="gateMfaSetup" class="hidden" style="margin-top:12px">
         <div id="gateMfaQr" style="background:#fff;padding:10px;border-radius:12px;width:max-content;max-width:100%"></div>
         <label>Clave manual</label>
@@ -122,7 +122,7 @@
         </div>
       </div>
       <label>Código de 6 dígitos</label>
-      <input id="gateMfaCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+      <input id="gateMfaCode" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="6" placeholder="000000">
       <div class="toolbar" style="margin-top:12px">
         <button id="gateMfaVerify" type="button">Verificar</button>
         <button id="gateMfaCreate" type="button" class="secondary">Configurar 2FA</button>
@@ -1866,10 +1866,22 @@ if("serviceWorker" in navigator){
     const {data,error}=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});
     if(error)throw error;
     pendingMfaFactor=data;
-    gateMfaQr.innerHTML=data.totp.qr_code;
+    const qr=data.totp.qr_code||"";
+    gateMfaQr.replaceChildren();
+    if(qr.startsWith("data:image/")){
+      const img=document.createElement("img");
+      img.src=qr; img.alt="Código QR para configurar 2FA";
+      img.style.cssText="display:block;max-width:210px;width:100%;height:auto";
+      gateMfaQr.appendChild(img);
+    }else if(qr.trim().startsWith("<svg")){
+      gateMfaQr.innerHTML=qr;
+    }
     gateMfaSecret.value=data.totp.secret||"";
     gateMfaSetup.classList.remove("hidden");
-    setGateStatus("Añade la clave a tu autenticador y verifica un código.","good");
+    gateMfaCreate.classList.add("hidden");
+    gateMfaCode.value="";
+    gateMfaCode.focus();
+    setGateStatus("Añade la cuenta a tu app autenticadora y escribe el código temporal de 6 números. No pegues la clave manual.","good");
   }
 
   async function verifyMfaCode(code){
@@ -2073,6 +2085,7 @@ if("serviceWorker" in navigator){
   gateForgot.onclick=async()=>{try{await sendRecovery(gateEmail.value);setGateStatus("Correo de recuperación enviado.","good")}catch(e){setGateStatus(authMessage(e),"bad")}};
   gateResend.onclick=async()=>{try{await sendConfirmation(gateEmail.value);setGateStatus("Correo de confirmación reenviado.","good")}catch(e){setGateStatus(authMessage(e),"bad")}};
   gateMfaCreate.onclick=async()=>{try{await createMfaForGate()}catch(e){setGateStatus(authMessage(e),"bad")}};
+  gateMfaCode.addEventListener("input",()=>{gateMfaCode.value=gateMfaCode.value.replace(/\\D/g,"").slice(0,6)});
   gateMfaVerify.onclick=async()=>{try{setGateStatus("Verificando…");await verifyMfaCode(gateMfaCode.value);gateMfaCode.value=""}catch(e){setGateStatus(authMessage(e),"bad")}};
   gateSignOut.onclick=async()=>{await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;pendingMfaFactor=null;lockApp();await updateGate()};
   gateCopyMfaSecret.onclick=async()=>{try{await navigator.clipboard.writeText(gateMfaSecret.value);setGateStatus("Clave copiada.","good")}catch(e){gateMfaSecret.select();document.execCommand("copy");setGateStatus("Clave copiada.","good")}};
