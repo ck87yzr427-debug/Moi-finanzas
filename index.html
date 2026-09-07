@@ -219,7 +219,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.0.1 · Persistencia reforzada</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.0.2 · Triple persistencia + diagnóstico</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -233,6 +233,15 @@
         <div class="section">
           <h3>Categorías actuales</h3>
           <div id="categoryList"></div>
+        </div>
+      </div>
+
+      <div class="card section">
+        <h2>Diagnóstico de almacenamiento</h2>
+        <p class="muted">Comprueba si el iPhone está conservando realmente los datos de esta app.</p>
+        <div id="storageDiagnostics" class="small"></div>
+        <div class="toolbar" style="margin-top:12px">
+          <button class="secondary" id="testStorageBtn" type="button">Probar almacenamiento</button>
         </div>
       </div>
     </section>
@@ -503,10 +512,12 @@ const PERSONAL_INCOME_CATEGORIES = [
   "Trabajo cobrado","Paro / prestación","Salario","Ayuda","Devolución","Otro ingreso"
 ];
 
-const dbKey="moi_finanzas_v3";
-const legacyKeys=["moi_finanzas_v2","moi_finanzas_v1"];
+const dbKey="moi_finanzas_v4";
+const legacyKeys=["moi_finanzas_v3","moi_finanzas_v2","moi_finanzas_v1"];
 const IDB_NAME="MoiFinanzasDB";
 const IDB_STORE="app";
+const DATA_CACHE="moi-finanzas-data-vault";
+const DATA_CACHE_KEY="./__moi_finanzas_state__.json";
 let db={
   projects:[],
   movements:[],
@@ -515,7 +526,7 @@ let db={
   settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},
   createdAt:new Date().toISOString(),
   updatedAt:new Date().toISOString(),
-  schemaVersion:3
+  schemaVersion:4
 };
 let saveQueue=Promise.resolve();
 
@@ -576,7 +587,7 @@ function normalizeDB(x){
   if(!x.settings) x.settings={consumption:7.5,fuelPrice:1.65,extraKmCost:0};
   if(!x.createdAt) x.createdAt=new Date().toISOString();
   if(!x.updatedAt) x.updatedAt=x.createdAt;
-  x.schemaVersion=3;
+  x.schemaVersion=4;
   x.projects.forEach(p=>{
     if(p.estimatedHours==null)p.estimatedHours=0;
     if(p.actualHours==null)p.actualHours=0;
@@ -599,6 +610,44 @@ function localGet(){
     }
   }
   return null;
+}
+
+
+async function cacheGet(){
+  try{
+    if(!("caches" in window)) return null;
+    const cache=await caches.open(DATA_CACHE);
+    const response=await cache.match(DATA_CACHE_KEY);
+    if(!response) return null;
+    return normalizeDB(await response.json());
+  }catch(e){
+    console.warn("No se pudo leer Cache Storage",e);
+    return null;
+  }
+}
+
+async function cacheSet(value){
+  try{
+    if(!("caches" in window)) return false;
+    const cache=await caches.open(DATA_CACHE);
+    const body=JSON.stringify(value);
+    await cache.put(DATA_CACHE_KEY,new Response(body,{
+      headers:{"Content-Type":"application/json","Cache-Control":"no-store"}
+    }));
+    return true;
+  }catch(e){
+    console.warn("No se pudo guardar Cache Storage",e);
+    return false;
+  }
+}
+
+function newestState(states){
+  return states.filter(Boolean).reduce((best,current)=>{
+    if(!best) return current;
+    const tb=Date.parse(best.updatedAt||best.createdAt||0)||0;
+    const tc=Date.parse(current.updatedAt||current.createdAt||0)||0;
+    return tc>tb?current:best;
+  },null);
 }
 
 function newerState(a,b){
@@ -629,8 +678,9 @@ async function requestPersistentStorage(){
 
 async function initDB(){
   const localState=localGet();
-  const idbState=normalizeDB(await idbGet());
-  const chosen=newerState(localState,idbState);
+  const [idbRaw,cacheState]=await Promise.all([idbGet(),cacheGet()]);
+  const idbState=normalizeDB(idbRaw);
+  const chosen=newestState([localState,idbState,cacheState]);
 
   if(chosen){
     db=chosen;
@@ -639,23 +689,25 @@ async function initDB(){
   }
 
   persistLocalSync();
-  await idbSet(db);
+  await Promise.all([idbSet(db),cacheSet(db)]);
   requestPersistentStorage();
   renderAll();
+  updateStorageDiagnostics();
 }
 
 function saveDB(){
   db.updatedAt=new Date().toISOString();
-  db.schemaVersion=3;
+  db.schemaVersion=4;
 
   persistLocalSync();
 
   const snapshot=JSON.parse(JSON.stringify(db));
   saveQueue=saveQueue
-    .then(()=>idbSet(snapshot))
+    .then(()=>Promise.all([idbSet(snapshot),cacheSet(snapshot)]))
     .catch(()=>false);
 
   renderAll();
+  updateStorageDiagnostics();
   return saveQueue;
 }
 
@@ -663,6 +715,9 @@ function emergencySave(){
   try{
     db.updatedAt=new Date().toISOString();
     persistLocalSync();
+    const snapshot=JSON.parse(JSON.stringify(db));
+    cacheSet(snapshot);
+    idbSet(snapshot);
   }catch(e){}
 }
 
@@ -1065,6 +1120,48 @@ transferForm.addEventListener("submit",e=>{
   saveDB();
 });
 
+
+async function updateStorageDiagnostics(){
+  if(!document.getElementById("storageDiagnostics")) return;
+  let persisted="No disponible",quota="—",localOk=false,idbOk=false,cacheOk=false;
+  try{
+    localStorage.setItem("__moi_test__","ok");
+    localOk=localStorage.getItem("__moi_test__")==="ok";
+    localStorage.removeItem("__moi_test__");
+  }catch(e){}
+  try{idbOk=!!(await idbGet());}catch(e){}
+  try{cacheOk=!!(await cacheGet());}catch(e){}
+  try{
+    if(navigator.storage?.persisted) persisted=(await navigator.storage.persisted())?"Sí":"No";
+    if(navigator.storage?.estimate){
+      const est=await navigator.storage.estimate();
+      quota=est.quota?Math.round(est.quota/1024/1024)+" MB":"—";
+    }
+  }catch(e){}
+  const standalone=window.matchMedia("(display-mode: standalone)").matches || navigator.standalone===true;
+  storageDiagnostics.innerHTML=
+    '<div class="project"><div><strong>Modo</strong><div class="muted">'+(standalone?'App instalada':'Navegador/webview')+'</div></div></div>'+
+    '<div class="project"><div><strong>localStorage</strong></div><strong class="'+(localOk?'good':'bad')+'">'+(localOk?'OK':'Fallo')+'</strong></div>'+
+    '<div class="project"><div><strong>IndexedDB</strong></div><strong class="'+(idbOk?'good':'bad')+'">'+(idbOk?'OK':'Sin datos')+'</strong></div>'+
+    '<div class="project"><div><strong>Cache Vault</strong></div><strong class="'+(cacheOk?'good':'bad')+'">'+(cacheOk?'OK':'Sin datos')+'</strong></div>'+
+    '<div class="project"><div><strong>Almacenamiento persistente</strong><div class="muted">Cuota aprox. '+quota+'</div></div><strong>'+persisted+'</strong></div>'+
+    '<div class="muted" style="margin-top:8px">Último guardado: '+escapeHtml(db.updatedAt||"—")+' · Esquema v'+(db.schemaVersion||"—")+'</div>';
+}
+
+async function runStorageTest(){
+  const marker={id:"storage-test-"+Date.now(),at:new Date().toISOString()};
+  try{
+    localStorage.setItem("__moi_persist_test__",JSON.stringify(marker));
+    const cache=await caches.open(DATA_CACHE);
+    await cache.put("./__moi_test__.json",new Response(JSON.stringify(marker)));
+    await idbSet({...db,_storageTest:marker});
+    alert("Prueba escrita. Cierra completamente la app, vuelve a abrirla y entra en Datos → Diagnóstico. Si los tres sistemas aparecen OK, el almacenamiento persiste.");
+  }catch(e){
+    alert("Error al probar almacenamiento: "+e.message);
+  }
+  updateStorageDiagnostics();
+}
+
 function renderSettings(){
   categoryList.innerHTML=CATEGORIES.map(c=>`<span class="pill">${c}</span>`).join("");
   settingConsumption.value=db.settings?.consumption??7.5;
@@ -1192,7 +1289,7 @@ movementForm.addEventListener("submit",e=>{
 });
 function deleteMovement(id){if(confirm("¿Eliminar este movimiento?")){db.movements=db.movements.filter(m=>m.id!==id);saveDB();}}
 
-newProject.onclick=openProject;newMovement.onclick=openMovement;quickExpense.onclick=openMovement;newPersonalMovement.onclick=openPersonalMovement;newTransfer.onclick=openTransfer;transferProject.onchange=updateTransferAvailable;
+newProject.onclick=openProject;newMovement.onclick=openMovement;quickExpense.onclick=openMovement;newPersonalMovement.onclick=openPersonalMovement;newTransfer.onclick=openTransfer;transferProject.onchange=updateTransferAvailable;if(window.testStorageBtn)testStorageBtn.onclick=runStorageTest;
 weekSelector.onchange=renderWeekly;filterFrom.onchange=renderMovements;filterTo.onchange=renderMovements;filterProject.onchange=renderMovements;personalMonth.onchange=renderPersonal;personalMovementType.onchange=updatePersonalCategoryOptions;
 document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll(".nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");
@@ -1218,7 +1315,7 @@ exportCsv.onclick=()=>{
   const csv=rows.map(r=>r.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(",")).join("\n");
   downloadBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),"moi-finanzas-movimientos.csv");
 };
-wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:3};saveDB();}};
+wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:4};saveDB();}};
 saveVehicleSettings.onclick=()=>{
   db.settings={
     consumption:Number(settingConsumption.value||0),
