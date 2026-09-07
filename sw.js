@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v8-storage-diagnostics";
+const CACHE = "moi-finanzas-v9-startup-recovery-fix";
 const CORE = [
   "./",
   "./index.html",
