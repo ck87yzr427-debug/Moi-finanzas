@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v10-hybrid-budget";
+const CACHE = "moi-finanzas-v11-mfa";
 const CORE = [
   "./",
   "./index.html",
@@ -40,6 +40,11 @@ self.addEventListener("fetch", event => {
         })
         .catch(()=>caches.match("./index.html"))
     );
+    return;
+  }
+
+  if(new URL(req.url).pathname.endsWith("/supabase-config.js")){
+    event.respondWith(fetch(req,{cache:"no-store"}).catch(()=>caches.match(req)));
     return;
   }
 
