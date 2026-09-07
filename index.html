@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111111">
-  <meta name="app-version" content="1.1.2-auth-redirect">
+  <meta name="app-version" content="1.2.0-auth-audit">
   <title>Moi Finanzas</title>
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -225,7 +225,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.1.2 · Confirmación + 2FA</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.2.0 · Auth revisado + sincronización segura</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -244,17 +244,19 @@
 
       <div class="card section" id="cloudCard">
         <h2>Cuenta y sincronización</h2>
-        <p class="muted">Modo híbrido: copia local inmediata + copia cifrada en la nube cuando inicies sesión.</p>
+        <p class="muted">Modo híbrido: copia local inmediata + copia protegida en la nube cuando inicies sesión.</p>
         <div id="cloudStatus" class="muted">Comprobando configuración...</div>
+        <div id="authDiagnostics" class="muted small" style="margin-top:6px"></div>
         <div id="cloudAuthForm" style="margin-top:12px">
           <label>Email</label>
           <input id="cloudEmail" type="email" autocomplete="email" placeholder="tu@email.com">
           <label>Contraseña</label>
-          <input id="cloudPassword" type="password" autocomplete="current-password" placeholder="Mínimo 12 caracteres">
+          <input id="cloudPassword" type="password" autocomplete="current-password" placeholder="Tu contraseña">
           <div class="toolbar" style="margin-top:12px">
             <button id="cloudSignIn" type="button">Entrar</button>
             <button id="cloudSignUp" type="button" class="secondary">Crear cuenta</button>
             <button id="cloudResendConfirmation" type="button" class="secondary">Reenviar confirmación</button>
+            <button id="cloudForgotPassword" type="button" class="secondary">Olvidé mi contraseña</button>
             <button id="cloudSignOut" type="button" class="secondary hidden">Cerrar sesión</button>
             <button id="cloudSyncNow" type="button" class="secondary">Sincronizar ahora</button>
           </div>
@@ -502,6 +504,21 @@
 
 
 
+<dialog id="passwordRecoveryDialog">
+  <form method="dialog" class="modal" id="passwordRecoveryForm">
+    <h2>Crear nueva contraseña</h2>
+    <p class="muted">Has abierto un enlace de recuperación de Supabase. Define una nueva contraseña.</p>
+    <label>Nueva contraseña</label>
+    <input id="recoveryPassword" type="password" autocomplete="new-password" placeholder="Mínimo 12 caracteres">
+    <label>Repite la contraseña</label>
+    <input id="recoveryPassword2" type="password" autocomplete="new-password" placeholder="Repite la contraseña">
+    <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
+      <button type="button" class="secondary" onclick="passwordRecoveryDialog.close()">Cancelar</button>
+      <button value="default">Guardar contraseña</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="budgetDialog">
   <form method="dialog" class="modal" id="budgetForm">
     <h2>Preparar presupuesto</h2>
@@ -673,10 +690,11 @@ let db={
   movements:[],
   personalMovements:[],
   transfers:[],
+  budgets:[],
   settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},
   createdAt:null,
   updatedAt:null,
-  schemaVersion:5
+  schemaVersion:6
 };
 let saveQueue=Promise.resolve();
 
@@ -734,10 +752,11 @@ function normalizeDB(x){
   if(!Array.isArray(x.movements)) x.movements=[];
   if(!Array.isArray(x.personalMovements)) x.personalMovements=[];
   if(!Array.isArray(x.transfers)) x.transfers=[];
+  if(!Array.isArray(x.budgets)) x.budgets=[];
   if(!x.settings) x.settings={consumption:7.5,fuelPrice:1.65,extraKmCost:0};
   if(!x.createdAt) x.createdAt=null;
   if(!x.updatedAt) x.updatedAt=x.createdAt||null;
-  x.schemaVersion=5;
+  x.schemaVersion=6;
   x.projects.forEach(p=>{
     if(p.estimatedHours==null)p.estimatedHours=0;
     if(p.actualHours==null)p.actualHours=0;
@@ -793,7 +812,7 @@ async function cacheSet(value){
 
 function stateWeight(x){
   if(!x) return -1;
-  return (x.projects?.length||0)+(x.movements?.length||0)+(x.personalMovements?.length||0)+(x.transfers?.length||0);
+  return (x.projects?.length||0)+(x.movements?.length||0)+(x.personalMovements?.length||0)+(x.transfers?.length||0)+(x.budgets?.length||0);
 }
 function newestState(states){
   return states.filter(Boolean).reduce((best,current)=>{
@@ -856,7 +875,7 @@ async function initDB(){
 
 function saveDB(){
   db.updatedAt=new Date().toISOString();
-  db.schemaVersion=5;
+  db.schemaVersion=6;
 
   persistLocalSync();
 
@@ -1474,7 +1493,7 @@ exportCsv.onclick=()=>{
   const csv=rows.map(r=>r.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(",")).join("\n");
   downloadBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),"moi-finanzas-movimientos.csv");
 };
-wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:5};saveDB();}};
+wipeData.onclick=()=>{if(confirm("Esto borrará todos los datos guardados en este dispositivo. ¿Continuar?")){db={projects:[],movements:[],personalMovements:[],transfers:[],budgets:[],settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:6};saveDB();}};
 saveVehicleSettings.onclick=()=>{
   db.settings={
     consumption:Number(settingConsumption.value||0),
@@ -1516,13 +1535,6 @@ if("serviceWorker" in navigator){
 <script src="./supabase-config.js"></script>
 <script>
 (function(){
-  const baseNormalizeDB=normalizeDB;
-  normalizeDB=function(x){
-    x=baseNormalizeDB(x);
-    if(!x) return x;
-    if(!Array.isArray(x.budgets)) x.budgets=[];
-    return x;
-  };
   if(!Array.isArray(db.budgets)) db.budgets=[];
 
   const style=document.createElement("style");
@@ -1658,23 +1670,45 @@ if("serviceWorker" in navigator){
   [finishProjectHours,finishProjectDays].forEach(x=>x.addEventListener("input",updateFinishSummary));
   finishProjectForm.addEventListener("submit",e=>{e.preventDefault();const p=db.projects.find(x=>x.id===finishProjectId.value);if(!p)return;p.status="finalizado";p.end=finishProjectDate.value;p.actualHours=Number(finishProjectHours.value||0);p.actualDays=Number(finishProjectDays.value||0);p.finalNotes=finishProjectNotes.value.trim();saveDB();finishProjectDialog.close();alert("Proyecto finalizado. Moi Finanzas ya ha recalculado el beneficio por hora real.")});
 
-  // ---- Hybrid Supabase sync + MFA (session-safe) ----
+  // ---- Hybrid Supabase sync + MFA (audited) ----
   let cloudClient=null,cloudUser=null,cloudSession=null,cloudTimer=null,cloudBusy=false,pendingMfaFactor=null;
+  let authEvent="INIT";
   const MOI_AUTH_REDIRECT="https://ck87yzr427-debug.github.io/Moi-finanzas/";
-  function cloudConfigured(){return !!(window.MOI_SUPABASE?.url&&window.MOI_SUPABASE?.anonKey&&window.supabase?.createClient)}
-  function setCloudStatus(msg,state=""){if(!window.cloudStatus)return;cloudStatus.innerHTML='<span class="sync-dot '+state+'"></span>'+escapeHtml(msg)}
-  async function validSession(){
+
+  function cloudConfigured(){
+    return !!(window.MOI_SUPABASE?.url&&window.MOI_SUPABASE?.anonKey&&window.supabase?.createClient);
+  }
+  function setCloudStatus(msg,state=""){
+    if(!window.cloudStatus)return;
+    cloudStatus.innerHTML='<span class="sync-dot '+state+'"></span>'+escapeHtml(msg);
+  }
+  function renderAuthDiagnostics(){
+    if(!window.authDiagnostics)return;
+    const uid=cloudUser?.id?cloudUser.id.slice(0,8)+"…":"—";
+    authDiagnostics.textContent="Auth: "+authEvent+" · sesión "+(cloudSession?"válida":"no activa")+" · usuario "+uid;
+  }
+  async function readSession({verifyUser=true}={}){
     if(!cloudClient)return null;
     const {data,error}=await cloudClient.auth.getSession();
-    if(error||!data?.session?.access_token)return null;
-    const {data:u,error:ue}=await cloudClient.auth.getUser(data.session.access_token);
-    if(ue||!u?.user)return null;
-    cloudSession=data.session;cloudUser=u.user;return data.session;
+    if(error||!data?.session?.access_token){
+      cloudSession=null;cloudUser=null;renderAuthDiagnostics();return null;
+    }
+    cloudSession=data.session;cloudUser=data.session.user||null;
+    if(verifyUser){
+      const {data:u,error:ue}=await cloudClient.auth.getUser();
+      if(ue||!u?.user){
+        cloudSession=null;cloudUser=null;renderAuthDiagnostics();return null;
+      }
+      cloudUser=u.user;
+    }
+    renderAuthDiagnostics();
+    return cloudSession;
   }
   async function getAal(){
-    if(!await validSession())return {currentLevel:null,nextLevel:null};
+    if(!await readSession())return {currentLevel:null,nextLevel:null};
     const {data,error}=await cloudClient.auth.mfa.getAuthenticatorAssuranceLevel();
-    if(error)throw error;return data||{currentLevel:null,nextLevel:null};
+    if(error)throw error;
+    return data||{currentLevel:null,nextLevel:null};
   }
   async function refreshMfaUI(){
     if(!window.mfaPanel)return;
@@ -1686,58 +1720,139 @@ if("serviceWorker" in navigator){
     const unverified=(data?.totp||[]).filter(f=>f.status!=="verified");
     const aal=await getAal();
     if(verified.length){
-      pendingMfaFactor=verified[0];mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
+      pendingMfaFactor=verified[0];
+      mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
       mfaEnroll.classList.add("hidden");if(window.mfaSecret)mfaSecret.value="";
-      mfaStatus.textContent=aal.currentLevel==="aal2"?"2FA activo. Esta sesión está verificada.":"2FA activo. Introduce el código actual de tu autenticador para desbloquear la nube.";
+      mfaStatus.textContent=aal.currentLevel==="aal2"
+        ?"2FA activo. Esta sesión está verificada."
+        :"2FA activo. Introduce el código actual de tu autenticador para desbloquear la nube.";
     }else if(unverified.length){
-      pendingMfaFactor=unverified[0];mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
-      mfaStatus.textContent="Configuración 2FA pendiente. Si no ves el QR, pulsa Activar 2FA de nuevo.";
+      pendingMfaFactor=unverified[0];
+      mfaSetup.classList.remove("hidden");mfaVerify.classList.remove("hidden");
+      mfaStatus.textContent="Hay una configuración 2FA sin terminar. Puedes continuar o generar una nueva.";
     }else{
-      pendingMfaFactor=null;mfaSetup.classList.remove("hidden");mfaVerify.classList.add("hidden");mfaEnroll.classList.add("hidden");
+      pendingMfaFactor=null;
+      mfaSetup.classList.remove("hidden");mfaVerify.classList.add("hidden");mfaEnroll.classList.add("hidden");
       mfaStatus.textContent="2FA todavía no está activado.";
     }
   }
   async function updateCloudUI(){
     const signed=!!cloudSession;
-    cloudSignOut.classList.toggle("hidden",!signed);cloudSignIn.classList.toggle("hidden",signed);cloudSignUp.classList.toggle("hidden",signed);cloudResendConfirmation.classList.toggle("hidden",signed);
+    cloudSignOut.classList.toggle("hidden",!signed);
+    cloudSignIn.classList.toggle("hidden",signed);
+    cloudSignUp.classList.toggle("hidden",signed);
+    cloudResendConfirmation.classList.toggle("hidden",signed);
+    cloudForgotPassword.classList.toggle("hidden",signed);
     cloudEmail.disabled=signed;cloudPassword.disabled=signed;
-    setCloudStatus(signed?"Sesión iniciada como "+cloudUser.email+". Verificando seguridad…":"Nube disponible. Inicia sesión para sincronizar.",signed?"good":"");
+    setCloudStatus(
+      signed?"Sesión iniciada como "+cloudUser.email+". Verificando seguridad…":"Nube disponible. Inicia sesión para sincronizar.",
+      signed?"good":""
+    );
+    renderAuthDiagnostics();
     await refreshMfaUI();
   }
   async function initCloud(){
-    if(!cloudConfigured()){setCloudStatus("No se pudo cargar la configuración de Supabase. Recarga la app con conexión a internet.","bad");return}
-    cloudClient=supabase.createClient(MOI_SUPABASE.url,MOI_SUPABASE.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"moi-finanzas-auth-v1"}});
-    await validSession();await updateCloudUI();
-    cloudClient.auth.onAuthStateChange((_event,session)=>{setTimeout(async()=>{
-      cloudSession=session||null;cloudUser=session?.user||null;
-      if(session)await validSession();await updateCloudUI();if(cloudSession)await guardedSync();
-    },0)});
+    if(!cloudConfigured()){
+      setCloudStatus("No se pudo cargar la configuración de Supabase. Recarga la app con conexión a internet.","bad");
+      return;
+    }
+    cloudClient=supabase.createClient(MOI_SUPABASE.url,MOI_SUPABASE.anonKey,{
+      auth:{
+        persistSession:true,
+        autoRefreshToken:true,
+        detectSessionInUrl:true,
+        storageKey:"moi-finanzas-auth-v2"
+      }
+    });
+
+    cloudClient.auth.onAuthStateChange((event,session)=>{
+      setTimeout(async()=>{
+        authEvent=event;
+        cloudSession=session||null;
+        cloudUser=session?.user||null;
+        if(event==="PASSWORD_RECOVERY"&&session){
+          await readSession({verifyUser:false});
+          await updateCloudUI();
+          passwordRecoveryDialog.showModal();
+          return;
+        }
+        if(session)await readSession({verifyUser:false});
+        await updateCloudUI();
+        if(cloudSession&&event!=="SIGNED_OUT")await guardedSync();
+      },0);
+    });
+
+    await readSession();
+    await updateCloudUI();
     if(cloudSession)await guardedSync();
   }
   function authMessage(error){
-    const m=(error?.message||String(error||"")).toLowerCase();
-    if(m.includes("invalid login credentials"))return "Email o contraseña incorrectos. Si acabas de crear la cuenta, confirma primero el correo de Supabase.";
-    if(m.includes("email not confirmed"))return "Debes confirmar tu email desde el correo enviado por Supabase.";
+    const raw=error?.message||String(error||"");
+    const code=error?.code||"";
+    const m=raw.toLowerCase();
+    if(m.includes("invalid login credentials")){
+      return "Supabase no acepta estas credenciales. Comprueba el correo y la contraseña o usa «Olvidé mi contraseña».";
+    }
+    if(m.includes("email not confirmed"))return "Debes confirmar tu email antes de iniciar sesión.";
     if(m.includes("rate limit"))return "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.";
-    return error?.message||"No se pudo iniciar sesión.";
+    if(m.includes("captcha"))return "La protección anti-bots está bloqueando el intento.";
+    return (code?code+": ":"")+raw;
   }
   async function cloudLogin(mode){
-    if(!cloudConfigured()){alert("La configuración de Supabase no se ha cargado. Cierra y vuelve a abrir la app con internet.");return}
-    const email=cloudEmail.value.trim().toLowerCase(),password=cloudPassword.value;
-    if(!email||password.length<12){alert("Introduce un email válido y una contraseña de al menos 12 caracteres.");return}
-    setCloudStatus(mode==="signup"?"Creando cuenta…":"Iniciando sesión…","");
-    const res=mode==="signup"
-      ?await cloudClient.auth.signUp({email,password,options:{emailRedirectTo:MOI_AUTH_REDIRECT}})
-      :await cloudClient.auth.signInWithPassword({email,password});
-    if(res.error){cloudSession=null;cloudUser=null;await updateCloudUI();alert(authMessage(res.error));return}
-    // A user object alone is NOT a logged-in session. MFA must never run without a bearer access token.
-    cloudSession=res.data?.session||null;cloudUser=cloudSession?.user||null;
-    if(mode==="signup"&&!cloudSession){
-      await updateCloudUI();setCloudStatus("Cuenta creada. Confirma el email y después pulsa Entrar.","good");
-      alert("Cuenta creada. Revisa tu correo y confirma la cuenta. El enlace debe volver a Moi Finanzas, no a localhost. Después pulsa Entrar.");return;
+    if(!cloudConfigured()){alert("Supabase no está disponible. Cierra y vuelve a abrir la app con internet.");return}
+    const email=cloudEmail.value.trim().toLowerCase();
+    const password=cloudPassword.value;
+
+    if(!email){alert("Introduce tu email.");return}
+    if(mode==="signup"&&password.length<12){
+      alert("Para crear una cuenta usa una contraseña de al menos 12 caracteres.");return;
     }
-    if(!await validSession()){cloudSession=null;cloudUser=null;await updateCloudUI();alert("Supabase no devolvió una sesión válida. Vuelve a iniciar sesión.");return}
-    await updateCloudUI();await guardedSync();
+    if(mode==="signin"&&!password){
+      alert("Introduce tu contraseña.");return;
+    }
+
+    setCloudStatus(mode==="signup"?"Creando cuenta…":"Iniciando sesión…","");
+    let res;
+    try{
+      res=mode==="signup"
+        ?await cloudClient.auth.signUp({email,password,options:{emailRedirectTo:MOI_AUTH_REDIRECT}})
+        :await cloudClient.auth.signInWithPassword({email,password});
+    }catch(e){
+      authEvent="AUTH_EXCEPTION";
+      setCloudStatus("Error de conexión con Supabase.","bad");renderAuthDiagnostics();
+      alert(authMessage(e));return;
+    }
+
+    if(res.error){
+      authEvent="AUTH_ERROR";
+      cloudSession=null;cloudUser=null;
+      await updateCloudUI();
+      setCloudStatus("No se pudo iniciar sesión.","bad");
+      alert(authMessage(res.error));return;
+    }
+
+    cloudSession=res.data?.session||null;
+    cloudUser=cloudSession?.user||null;
+
+    if(mode==="signup"&&!cloudSession){
+      authEvent="SIGNUP_CONFIRM_REQUIRED";
+      await updateCloudUI();
+      setCloudStatus("Cuenta creada. Confirma el email y después pulsa Entrar.","good");
+      alert("Cuenta creada. Revisa tu correo y confirma la cuenta. Después vuelve aquí y pulsa Entrar.");
+      return;
+    }
+
+    if(!await readSession()){
+      authEvent="SESSION_INVALID";
+      await updateCloudUI();
+      alert("Supabase respondió al login pero no quedó una sesión válida. Pulsa Entrar de nuevo.");
+      return;
+    }
+
+    authEvent="LOGIN_OK";
+    cloudPassword.value="";
+    await updateCloudUI();
+    await guardedSync();
   }
   async function resendConfirmation(){
     if(!cloudConfigured()){alert("Supabase no está disponible.");return}
@@ -1747,70 +1862,172 @@ if("serviceWorker" in navigator){
     if(error){alert("No se pudo reenviar el correo: "+authMessage(error));return}
     alert("Correo de confirmación reenviado. Usa el enlace más reciente.");
   }
-
+  async function sendPasswordRecovery(){
+    if(!cloudConfigured()){alert("Supabase no está disponible.");return}
+    const email=cloudEmail.value.trim().toLowerCase();
+    if(!email){alert("Escribe primero tu email.");return}
+    const {error}=await cloudClient.auth.resetPasswordForEmail(email,{redirectTo:MOI_AUTH_REDIRECT});
+    if(error){alert("No se pudo enviar la recuperación: "+authMessage(error));return}
+    alert("Te hemos enviado un enlace para crear una contraseña nueva.");
+  }
   async function guardedSync(){
-    if(!await validSession()){cloudSession=null;cloudUser=null;await updateCloudUI();return}
+    if(!await readSession()){
+      authEvent="NO_SESSION";
+      await updateCloudUI();return;
+    }
     try{
       const aal=await getAal();
       if(aal.currentLevel!=="aal2"){
-        setCloudStatus(aal.nextLevel==="aal2"?"Introduce tu código 2FA para desbloquear la sincronización.":"Activa 2FA para habilitar la sincronización segura.","bad");
+        setCloudStatus(
+          aal.nextLevel==="aal2"?"Introduce tu código 2FA para desbloquear la sincronización.":"Activa 2FA para habilitar la sincronización segura.",
+          "bad"
+        );
         await refreshMfaUI();return;
       }
       await syncCloud();
-    }catch(e){setCloudStatus("Seguridad: "+authMessage(e),"bad")}
+    }catch(e){
+      setCloudStatus("Seguridad: "+authMessage(e),"bad");
+    }
   }
+  function payloadWeight(x){return stateWeight(normalizeDB(JSON.parse(JSON.stringify(x||{})))||{});}
   async function syncCloud(){
-    if(!cloudClient||!cloudUser||!cloudSession||cloudBusy)return;cloudBusy=true;setCloudStatus("Sincronizando…","");
+    if(!cloudClient||!cloudUser||!cloudSession||cloudBusy)return;
+    cloudBusy=true;setCloudStatus("Sincronizando…","");
     try{
-      const {data,error}=await cloudClient.from("app_states").select("payload,updated_at").eq("user_id",cloudUser.id).maybeSingle();
+      const {data,error}=await cloudClient.from("app_states")
+        .select("payload,updated_at")
+        .eq("user_id",cloudUser.id)
+        .maybeSingle();
       if(error)throw error;
-      const localTs=Date.parse(db.updatedAt||0)||0,cloudTs=Date.parse(data?.updated_at||0)||0;
-      if(data?.payload&&cloudTs>localTs){
-        const incoming=normalizeDB(data.payload);if(incoming){db=incoming;persistLocalSync();await Promise.all([idbSet(db),cacheSet(db)]);renderAll()}
+
+      const localTs=Date.parse(db.updatedAt||0)||0;
+      const cloudTs=Date.parse(data?.updated_at||0)||0;
+      const localWeight=stateWeight(db);
+      const cloudWeight=data?.payload?payloadWeight(data.payload):-1;
+
+      // Never overwrite meaningful cloud data with a fresh/empty local state.
+      if(data?.payload && ((localWeight===0&&cloudWeight>0) || cloudTs>localTs)){
+        const incoming=normalizeDB(data.payload);
+        if(incoming){
+          db=incoming;
+          persistLocalSync();
+          await Promise.all([idbSet(db),cacheSet(db)]);
+          renderAll();
+        }
       }else{
-        const {error:upErr}=await cloudClient.from("app_states").upsert({user_id:cloudUser.id,payload:db},{onConflict:"user_id"});if(upErr)throw upErr;
+        const {error:upErr}=await cloudClient.from("app_states")
+          .upsert({user_id:cloudUser.id,payload:db},{onConflict:"user_id"});
+        if(upErr)throw upErr;
       }
       setCloudStatus("Todo sincronizado · "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),"good");
     }catch(e){
-      console.warn(e);
-      const msg=(e?.message||"").includes("permission denied")?"Acceso bloqueado por seguridad. Verifica el 2FA y vuelve a sincronizar.":e.message;
+      console.warn("Moi sync error",e);
+      const raw=e?.message||"Error desconocido";
+      const msg=raw.toLowerCase().includes("permission denied")
+        ?"Acceso bloqueado por la política de seguridad. Completa el 2FA y vuelve a sincronizar."
+        :raw;
       setCloudStatus("Sin sincronizar: "+msg,"bad");
-    }finally{cloudBusy=false}
+    }finally{
+      cloudBusy=false;
+    }
   }
   async function startMfa(){
     try{
-      if(!await validSession()){alert("Primero debes iniciar sesión correctamente.");return}
-      // Remove only abandoned, unverified enrollments.
-      const {data:list,error:listErr}=await cloudClient.auth.mfa.listFactors();if(listErr)throw listErr;
+      if(!await readSession()){alert("Primero debes iniciar sesión correctamente.");return}
+      const {data:list,error:listErr}=await cloudClient.auth.mfa.listFactors();
+      if(listErr)throw listErr;
       const verified=(list?.totp||[]).find(x=>x.status==="verified");
-      if(verified){pendingMfaFactor=verified;await refreshMfaUI();alert("2FA ya está activado. Introduce el código de 6 dígitos.");return}
-      for(const f of (list?.totp||[]).filter(x=>x.status!=="verified")){const r=await cloudClient.auth.mfa.unenroll({factorId:f.id});if(r.error)console.warn(r.error)}
-      const {data,error}=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});if(error)throw error;
-      pendingMfaFactor=data;mfaEnroll.classList.remove("hidden");mfaQr.innerHTML=data.totp.qr_code;mfaSecret.value=data.totp.secret||"";
-      mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
-      mfaStatus.textContent="Escanea el QR con tu app autenticadora y escribe el código de 6 dígitos.";
-    }catch(e){alert("No se pudo activar 2FA: "+authMessage(e))}
+      if(verified){
+        pendingMfaFactor=verified;await refreshMfaUI();
+        alert("2FA ya está activado. Introduce el código actual de 6 dígitos.");return;
+      }
+      for(const f of (list?.totp||[]).filter(x=>x.status!=="verified")){
+        const r=await cloudClient.auth.mfa.unenroll({factorId:f.id});
+        if(r.error)console.warn("No se pudo limpiar factor pendiente",r.error);
+      }
+      const {data,error}=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});
+      if(error)throw error;
+      pendingMfaFactor=data;
+      mfaEnroll.classList.remove("hidden");
+      mfaQr.innerHTML=data.totp.qr_code;
+      mfaSecret.value=data.totp.secret||"";
+      mfaSetup.classList.add("hidden");
+      mfaVerify.classList.remove("hidden");
+      mfaStatus.textContent="Escanea el QR o copia la clave en tu autenticador y escribe el código de 6 dígitos.";
+    }catch(e){
+      alert("No se pudo activar 2FA: "+authMessage(e));
+    }
   }
   async function verifyMfa(){
     const code=mfaCode.value.replace(/\D/g,"");
     if(!/^\d{6}$/.test(code)){alert("Introduce exactamente los 6 dígitos del autenticador.");return}
     try{
-      if(!await validSession())throw new Error("La sesión ha caducado. Inicia sesión otra vez.");
-      if(!pendingMfaFactor){const {data,error}=await cloudClient.auth.mfa.listFactors();if(error)throw error;pendingMfaFactor=(data?.totp||[]).find(f=>f.status==="verified")||(data?.totp||[])[0]}
+      if(!await readSession())throw new Error("La sesión ha caducado. Inicia sesión otra vez.");
+      if(!pendingMfaFactor){
+        const {data,error}=await cloudClient.auth.mfa.listFactors();
+        if(error)throw error;
+        pendingMfaFactor=(data?.totp||[]).find(f=>f.status==="verified")||(data?.totp||[])[0];
+      }
       if(!pendingMfaFactor)throw new Error("No hay un factor 2FA configurado. Pulsa Activar 2FA.");
-      const {data:challenge,error:chErr}=await cloudClient.auth.mfa.challenge({factorId:pendingMfaFactor.id});if(chErr)throw chErr;
-      const {data:verified,error}=await cloudClient.auth.mfa.verify({factorId:pendingMfaFactor.id,challengeId:challenge.id,code});if(error)throw error;
-      if(verified?.access_token){cloudSession={...(cloudSession||{}),...verified};}
-      await validSession();mfaCode.value="";mfaEnroll.classList.add("hidden");mfaSecret.value="";await refreshMfaUI();await guardedSync();
-    }catch(e){alert("No se pudo verificar 2FA: "+authMessage(e))}
+      const {data:challenge,error:chErr}=await cloudClient.auth.mfa.challenge({factorId:pendingMfaFactor.id});
+      if(chErr)throw chErr;
+      const {error}=await cloudClient.auth.mfa.verify({
+        factorId:pendingMfaFactor.id,
+        challengeId:challenge.id,
+        code
+      });
+      if(error)throw error;
+      await readSession();
+      mfaCode.value="";mfaEnroll.classList.add("hidden");mfaSecret.value="";
+      await refreshMfaUI();
+      await guardedSync();
+    }catch(e){
+      alert("No se pudo verificar 2FA: "+authMessage(e));
+    }
   }
+
+  passwordRecoveryForm.addEventListener("submit",async e=>{
+    e.preventDefault();
+    const p1=recoveryPassword.value,p2=recoveryPassword2.value;
+    if(p1.length<12){alert("La nueva contraseña debe tener al menos 12 caracteres.");return}
+    if(p1!==p2){alert("Las contraseñas no coinciden.");return}
+    const {error}=await cloudClient.auth.updateUser({password:p1});
+    if(error){alert("No se pudo cambiar la contraseña: "+authMessage(error));return}
+    recoveryPassword.value="";recoveryPassword2.value="";
+    passwordRecoveryDialog.close();
+    alert("Contraseña actualizada. Ya puedes continuar.");
+  });
+
   function scheduleCloud(){clearTimeout(cloudTimer);cloudTimer=setTimeout(guardedSync,900)}
   const baseSaveDB=saveDB;
-  saveDB=function(){const r=baseSaveDB();if(cloudSession&&navigator.onLine)scheduleCloud();return r};
-  cloudSignIn.onclick=()=>cloudLogin("signin");cloudSignUp.onclick=()=>cloudLogin("signup");cloudResendConfirmation.onclick=resendConfirmation;
-  cloudSignOut.onclick=async()=>{if(cloudClient)await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;pendingMfaFactor=null;cloudPassword.value="";await updateCloudUI()};
-  cloudSyncNow.onclick=()=>guardedSync();mfaSetup.onclick=startMfa;mfaVerify.onclick=verifyMfa;
-  copyMfaSecret.onclick=async()=>{if(!mfaSecret.value){alert("Activa 2FA primero para generar la clave.");return}try{await navigator.clipboard.writeText(mfaSecret.value);alert("Clave copiada.");}catch(e){mfaSecret.select();document.execCommand("copy");alert("Clave copiada.");}};
+  saveDB=function(){
+    const r=baseSaveDB();
+    if(cloudSession&&navigator.onLine)scheduleCloud();
+    return r;
+  };
+
+  cloudSignIn.onclick=()=>cloudLogin("signin");
+  cloudSignUp.onclick=()=>cloudLogin("signup");
+  cloudResendConfirmation.onclick=resendConfirmation;
+  cloudForgotPassword.onclick=sendPasswordRecovery;
+  cloudSignOut.onclick=async()=>{
+    if(cloudClient)await cloudClient.auth.signOut();
+    cloudSession=null;cloudUser=null;pendingMfaFactor=null;cloudPassword.value="";
+    authEvent="SIGNED_OUT";
+    await updateCloudUI();
+  };
+  cloudSyncNow.onclick=()=>guardedSync();
+  mfaSetup.onclick=startMfa;
+  mfaVerify.onclick=verifyMfa;
+  copyMfaSecret.onclick=async()=>{
+    if(!mfaSecret.value){alert("Activa 2FA primero para generar la clave.");return}
+    try{
+      await navigator.clipboard.writeText(mfaSecret.value);
+      alert("Clave copiada.");
+    }catch(e){
+      mfaSecret.select();document.execCommand("copy");alert("Clave copiada.");
+    }
+  };
   window.addEventListener("online",()=>{if(cloudSession)guardedSync()});
   initCloud();
 
