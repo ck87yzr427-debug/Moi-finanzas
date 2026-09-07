@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v140-login-only";
+const CACHE = "moi-finanzas-v141-rpc-persistence";
 const CORE = [
   "./",
   "./index.html",
