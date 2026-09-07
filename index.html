@@ -1986,7 +1986,7 @@ if("serviceWorker" in navigator){
       return;
     }
     cloudClient=supabase.createClient(MOI_SUPABASE.url,MOI_SUPABASE.anonKey,{
-      auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"moi-finanzas-auth-v3"}
+      auth:{persistSession:false,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"moi-finanzas-auth-v3"}
     });
     cloudClient.auth.onAuthStateChange((event,session)=>{
       setTimeout(async()=>{
