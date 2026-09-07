@@ -1802,6 +1802,14 @@ if("serviceWorker" in navigator){
     snapshot.ownerId=cloudUser.id;
     const {error}=await cloudClient.rpc("save_my_app_state",{p_payload:snapshot});
     if(error)throw error;
+
+    // Read-after-write verification: never report "synced" unless Supabase
+    // actually returns the same state revision we just saved.
+    const confirmed=await fetchCloudState();
+    const confirmedState=confirmed?.payload||null;
+    if(!confirmedState || confirmedState.updatedAt!==snapshot.updatedAt){
+      throw new Error("Supabase no confirmó el último guardado");
+    }
     return true;
   }
 
@@ -1878,7 +1886,7 @@ if("serviceWorker" in navigator){
         await pushCloudState(snapshot);
       }while(cloudDirty);
       clearCloudDirty();
-      setCloudStatus("Todo sincronizado · "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),"good");
+      setCloudStatus("Guardado en Supabase · "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),"good");
     }catch(e){
       cloudDirty=true;
       setCloudStatus("Pendiente de sincronizar: "+(e?.message||"error"),"bad");
@@ -1919,7 +1927,7 @@ if("serviceWorker" in navigator){
     setGateStatus("Sesión válida. Cargando tus datos…","good");
     try{
       await reconcileCloudOnUnlock();
-      setCloudStatus("Todo sincronizado","good");
+      setCloudStatus("Datos recuperados y verificados en Supabase","good");
     }catch(e){
       console.warn("Cloud restore failed",e);
       setCloudStatus("Sesión iniciada. Sincronización pendiente: "+(e?.message||"error"),"bad");
@@ -1934,7 +1942,7 @@ if("serviceWorker" in navigator){
       return;
     }
     cloudClient=supabase.createClient(MOI_SUPABASE.url,MOI_SUPABASE.anonKey,{
-      auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"moi-finanzas-auth-v4"}
+      auth:{persistSession:false,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"moi-finanzas-auth-v5"}
     });
 
     cloudClient.auth.onAuthStateChange((event,session)=>{
