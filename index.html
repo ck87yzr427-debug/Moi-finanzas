@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111111">
-  <meta name="app-version" content="1.4.1-rpc-persistence">
+  <meta name="app-version" content="1.5.0-persistence-stable">
   <title>Moi Finanzas</title>
   <meta name="moi-build" content="1.3.4">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -263,7 +263,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.4.1 · Inicio de sesión + persistencia segura</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.5.0 · Persistencia estable en nube</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -1693,6 +1693,7 @@ if("serviceWorker" in navigator){
   // ---- Login gate + cloud-first persistence (no MFA) ----
   let cloudClient=null,cloudUser=null,cloudSession=null;
   let authEvent="INIT",cloudBusy=false,cloudDirty=false,cloudTimer=null,appUnlocked=false;
+  const CLOUD_DIRTY_KEY="moi_finanzas_cloud_dirty_v1";
   const MOI_AUTH_REDIRECT="https://ck87yzr427-debug.github.io/Moi-finanzas/";
 
   function cloudConfigured(){
@@ -1783,14 +1784,17 @@ if("serviceWorker" in navigator){
   }
 
   function cloneState(x){return JSON.parse(JSON.stringify(x));}
-  function stateTime(x){return Date.parse(x?.updatedAt||x?.createdAt||0)||0;}
+  function markCloudDirty(){try{localStorage.setItem(CLOUD_DIRTY_KEY,"1")}catch(e){}}
+  function clearCloudDirty(){try{localStorage.removeItem(CLOUD_DIRTY_KEY)}catch(e){}}
+  function hasCloudDirty(){try{return localStorage.getItem(CLOUD_DIRTY_KEY)==="1"}catch(e){return false}}
 
   async function fetchCloudState(){
     if(!cloudClient||!cloudUser)return null;
     const {data,error}=await cloudClient.rpc("get_my_app_state");
     if(error)throw error;
-    if(!data)return null;
-    return data;
+    const row=Array.isArray(data)?data[0]:data;
+    if(!row||!row.payload)return null;
+    return row;
   }
 
   async function pushCloudState(snapshot){
@@ -1806,7 +1810,9 @@ if("serviceWorker" in navigator){
     const remoteState=remote?.payload?normalizeDB(cloneState(remote.payload)):null;
     let local=normalizeDB(cloneState(db));
 
+    // Never mix local data belonging to a different account.
     if(local.ownerId && local.ownerId!==cloudUser.id){
+      clearCloudDirty();
       if(remoteState){
         db=remoteState;
       }else{
@@ -1816,22 +1822,33 @@ if("serviceWorker" in navigator){
           settings:{consumption:7.5,fuelPrice:1.65,extraKmCost:0},
           createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),schemaVersion:6
         });
+        await pushCloudState(cloneState(db));
       }
       db.ownerId=cloudUser.id;
       persistLocalSync();
       await Promise.all([idbSet(db),cacheSet(db)]);
       renderAll();
-      if(!remoteState)await pushCloudState(cloneState(db));
       return true;
     }
 
     if(!local.ownerId)local.ownerId=cloudUser.id;
-    if(remoteState&&!remoteState.ownerId)remoteState.ownerId=cloudUser.id;
 
-    const lw=stateWeight(local),rw=stateWeight(remoteState);
-    const lt=stateTime(local),rt=stateTime(remoteState);
+    // If a local change was not confirmed in the cloud before the app closed,
+    // finish that upload first. This prevents losing a last-second edit.
+    if(hasCloudDirty()){
+      db=local;
+      db.ownerId=cloudUser.id;
+      await pushCloudState(cloneState(db));
+      clearCloudDirty();
+      persistLocalSync();
+      await Promise.all([idbSet(db),cacheSet(db)]);
+      renderAll();
+      return true;
+    }
 
-    if(remoteState && ((lw===0&&rw>0) || rt>lt)){
+    // Normal startup: Supabase is the source of truth.
+    // If iOS has cleared local storage, the complete state is restored here.
+    if(remoteState){
       db=remoteState;
       db.ownerId=cloudUser.id;
       persistLocalSync();
@@ -1840,10 +1857,14 @@ if("serviceWorker" in navigator){
       return true;
     }
 
+    // First migration / first use: seed the cloud from the existing local state.
     db=local;
     db.ownerId=cloudUser.id;
-    persistLocalSync();
     await pushCloudState(cloneState(db));
+    clearCloudDirty();
+    persistLocalSync();
+    await Promise.all([idbSet(db),cacheSet(db)]);
+    renderAll();
     return true;
   }
 
@@ -1856,6 +1877,7 @@ if("serviceWorker" in navigator){
         const snapshot=cloneState(db);
         await pushCloudState(snapshot);
       }while(cloudDirty);
+      clearCloudDirty();
       setCloudStatus("Todo sincronizado · "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),"good");
     }catch(e){
       cloudDirty=true;
@@ -1866,6 +1888,7 @@ if("serviceWorker" in navigator){
   }
 
   function queueCloudSave(){
+    markCloudDirty();
     cloudDirty=true;
     clearTimeout(cloudTimer);
     flushCloudQueue();
@@ -1955,6 +1978,7 @@ if("serviceWorker" in navigator){
   const baseSaveDB=saveDB;
   saveDB=function(){
     const r=baseSaveDB();
+    if(cloudUser)markCloudDirty();
     if(appUnlocked&&cloudSession&&navigator.onLine)queueCloudSave();
     return r;
   };
