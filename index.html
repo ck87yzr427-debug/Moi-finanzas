@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#111111">
   <meta name="app-version" content="1.3.0-auth-gate-cloud-persistence">
   <title>Moi Finanzas</title>
+  <meta name="moi-build" content="1.3.4">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -2104,6 +2105,16 @@ if("serviceWorker" in navigator){
   gateMfaCreate.onclick=async()=>{try{await createMfaForGate()}catch(e){setGateStatus(authMessage(e),"bad")}};
   gateMfaCode.addEventListener("input",()=>{gateMfaCode.value=gateMfaCode.value.replace(/\\D/g,"").slice(0,6)});
   gateMfaVerify.onclick=async()=>{try{setGateStatus("Verificando…");await verifyMfaCode(gateMfaCode.value);gateMfaCode.value=""}catch(e){setGateStatus(authMessage(e),"bad")}};
+  // Build 1.3.4: ensure installed PWA adopts security/auth fixes promptly.
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.getRegistration().then(reg=>reg?.update()).catch(()=>{});
+    navigator.serviceWorker.addEventListener("controllerchange",()=>{
+      if(!sessionStorage.getItem("moi-sw-reloaded")){
+        sessionStorage.setItem("moi-sw-reloaded","1");
+        location.reload();
+      }
+    });
+  }
   gateSignOut.onclick=async()=>{await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;pendingMfaFactor=null;lockApp();await updateGate()};
   gateCopyMfaSecret.onclick=async()=>{try{await navigator.clipboard.writeText(gateMfaSecret.value);setGateStatus("Clave copiada.","good")}catch(e){gateMfaSecret.select();document.execCommand("copy");setGateStatus("Clave copiada.","good")}};
 
