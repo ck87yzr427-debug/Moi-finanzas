@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111111">
-  <meta name="app-version" content="1.1.0-hybrid">
+  <meta name="app-version" content="1.1.1-hybrid-mfa">
   <title>Moi Finanzas</title>
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -225,7 +225,7 @@
 
       <div class="card section">
         <h2>Datos y copia de seguridad</h2>
-        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.1.0 · Presupuestos + nube híbrida</div>
+        <div class="muted" style="margin-bottom:10px">Moi Finanzas 1.1.1 · Nube híbrida + 2FA</div>
         <p class="muted">Los datos se guardan en este dispositivo. No se conecta con ningún banco.</p>
         <div class="toolbar">
           <button id="exportJson">Exportar copia</button>
@@ -250,7 +250,7 @@
           <label>Email</label>
           <input id="cloudEmail" type="email" autocomplete="email" placeholder="tu@email.com">
           <label>Contraseña</label>
-          <input id="cloudPassword" type="password" autocomplete="current-password" placeholder="Mínimo 8 caracteres">
+          <input id="cloudPassword" type="password" autocomplete="current-password" placeholder="Mínimo 12 caracteres">
           <div class="toolbar" style="margin-top:12px">
             <button id="cloudSignIn" type="button">Entrar</button>
             <button id="cloudSignUp" type="button" class="secondary">Crear cuenta</button>
@@ -1652,67 +1652,97 @@ if("serviceWorker" in navigator){
   [finishProjectHours,finishProjectDays].forEach(x=>x.addEventListener("input",updateFinishSummary));
   finishProjectForm.addEventListener("submit",e=>{e.preventDefault();const p=db.projects.find(x=>x.id===finishProjectId.value);if(!p)return;p.status="finalizado";p.end=finishProjectDate.value;p.actualHours=Number(finishProjectHours.value||0);p.actualDays=Number(finishProjectDays.value||0);p.finalNotes=finishProjectNotes.value.trim();saveDB();finishProjectDialog.close();alert("Proyecto finalizado. Moi Finanzas ya ha recalculado el beneficio por hora real.")});
 
-  // ---- Hybrid Supabase sync + MFA ----
-  let cloudClient=null,cloudUser=null,cloudTimer=null,cloudBusy=false,pendingMfaFactor=null;
-  function cloudConfigured(){return !!(window.MOI_SUPABASE&&MOI_SUPABASE.url&&MOI_SUPABASE.anonKey&&window.supabase)}
+  // ---- Hybrid Supabase sync + MFA (session-safe) ----
+  let cloudClient=null,cloudUser=null,cloudSession=null,cloudTimer=null,cloudBusy=false,pendingMfaFactor=null;
+  function cloudConfigured(){return !!(window.MOI_SUPABASE?.url&&window.MOI_SUPABASE?.anonKey&&window.supabase?.createClient)}
   function setCloudStatus(msg,state=""){if(!window.cloudStatus)return;cloudStatus.innerHTML='<span class="sync-dot '+state+'"></span>'+escapeHtml(msg)}
+  async function validSession(){
+    if(!cloudClient)return null;
+    const {data,error}=await cloudClient.auth.getSession();
+    if(error||!data?.session?.access_token)return null;
+    const {data:u,error:ue}=await cloudClient.auth.getUser(data.session.access_token);
+    if(ue||!u?.user)return null;
+    cloudSession=data.session;cloudUser=u.user;return data.session;
+  }
   async function getAal(){
-    if(!cloudClient||!cloudUser)return {currentLevel:null,nextLevel:null};
+    if(!await validSession())return {currentLevel:null,nextLevel:null};
     const {data,error}=await cloudClient.auth.mfa.getAuthenticatorAssuranceLevel();
-    if(error)throw error; return data||{currentLevel:null,nextLevel:null};
+    if(error)throw error;return data||{currentLevel:null,nextLevel:null};
   }
   async function refreshMfaUI(){
     if(!window.mfaPanel)return;
-    mfaPanel.classList.toggle("hidden",!cloudUser);
-    if(!cloudUser)return;
+    mfaPanel.classList.toggle("hidden",!cloudSession);
+    if(!cloudSession)return;
     const {data,error}=await cloudClient.auth.mfa.listFactors();
-    if(error){mfaStatus.textContent="No se pudo comprobar 2FA.";return}
+    if(error){mfaStatus.textContent="No se pudo comprobar el segundo factor.";return}
     const verified=(data?.totp||[]).filter(f=>f.status==="verified");
+    const unverified=(data?.totp||[]).filter(f=>f.status!=="verified");
     const aal=await getAal();
     if(verified.length){
-      mfaStatus.textContent=aal.currentLevel==="aal2"?"2FA activo y verificado en esta sesión.":"2FA activo. Introduce el código para desbloquear la nube.";
-      mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
-      pendingMfaFactor=verified[0];
+      pendingMfaFactor=verified[0];mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
+      mfaEnroll.classList.add("hidden");
+      mfaStatus.textContent=aal.currentLevel==="aal2"?"2FA activo. Esta sesión está verificada.":"2FA activo. Introduce el código actual de tu autenticador para desbloquear la nube.";
+    }else if(unverified.length){
+      pendingMfaFactor=unverified[0];mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
+      mfaStatus.textContent="Configuración 2FA pendiente. Si no ves el QR, pulsa Activar 2FA de nuevo.";
     }else{
+      pendingMfaFactor=null;mfaSetup.classList.remove("hidden");mfaVerify.classList.add("hidden");mfaEnroll.classList.add("hidden");
       mfaStatus.textContent="2FA todavía no está activado.";
-      mfaSetup.classList.remove("hidden");mfaVerify.classList.add("hidden");pendingMfaFactor=null;
     }
   }
-  async function initCloud(){
-    if(!cloudConfigured()){setCloudStatus("Supabase todavía no está configurado.","bad");return}
-    cloudClient=supabase.createClient(MOI_SUPABASE.url,MOI_SUPABASE.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
-    const {data,error}=await cloudClient.auth.getSession();
-    if(error){setCloudStatus("Error de sesión: "+error.message,"bad");return}
-    cloudUser=data.session?.user||null;await updateCloudUI();
-    cloudClient.auth.onAuthStateChange((_e,session)=>{setTimeout(async()=>{cloudUser=session?.user||null;await updateCloudUI();if(cloudUser)await guardedSync()},0)});
-    if(cloudUser) await guardedSync();
-  }
   async function updateCloudUI(){
-    if(!cloudConfigured())return;
-    cloudSignOut.classList.toggle("hidden",!cloudUser);cloudSignIn.classList.toggle("hidden",!!cloudUser);cloudSignUp.classList.toggle("hidden",!!cloudUser);
-    setCloudStatus(cloudUser?"Conectado como "+cloudUser.email:"Nube disponible. Inicia sesión para sincronizar.",cloudUser?"good":"");
+    const signed=!!cloudSession;
+    cloudSignOut.classList.toggle("hidden",!signed);cloudSignIn.classList.toggle("hidden",signed);cloudSignUp.classList.toggle("hidden",signed);
+    cloudEmail.disabled=signed;cloudPassword.disabled=signed;
+    setCloudStatus(signed?"Sesión iniciada como "+cloudUser.email+". Verificando seguridad…":"Nube disponible. Inicia sesión para sincronizar.",signed?"good":"");
     await refreshMfaUI();
   }
+  async function initCloud(){
+    if(!cloudConfigured()){setCloudStatus("No se pudo cargar la configuración de Supabase. Recarga la app con conexión a internet.","bad");return}
+    cloudClient=supabase.createClient(MOI_SUPABASE.url,MOI_SUPABASE.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"moi-finanzas-auth-v1"}});
+    await validSession();await updateCloudUI();
+    cloudClient.auth.onAuthStateChange((_event,session)=>{setTimeout(async()=>{
+      cloudSession=session||null;cloudUser=session?.user||null;
+      if(session)await validSession();await updateCloudUI();if(cloudSession)await guardedSync();
+    },0)});
+    if(cloudSession)await guardedSync();
+  }
+  function authMessage(error){
+    const m=(error?.message||String(error||"")).toLowerCase();
+    if(m.includes("invalid login credentials"))return "Email o contraseña incorrectos. Si acabas de crear la cuenta, confirma primero el correo de Supabase.";
+    if(m.includes("email not confirmed"))return "Debes confirmar tu email desde el correo enviado por Supabase.";
+    if(m.includes("rate limit"))return "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.";
+    return error?.message||"No se pudo iniciar sesión.";
+  }
   async function cloudLogin(mode){
-    if(!cloudConfigured()){alert("Supabase todavía no está configurado.");return}
-    const email=cloudEmail.value.trim(),password=cloudPassword.value;
-    if(!email||password.length<12){alert("Introduce email y una contraseña de al menos 12 caracteres.");return}
+    if(!cloudConfigured()){alert("La configuración de Supabase no se ha cargado. Cierra y vuelve a abrir la app con internet.");return}
+    const email=cloudEmail.value.trim().toLowerCase(),password=cloudPassword.value;
+    if(!email||password.length<12){alert("Introduce un email válido y una contraseña de al menos 12 caracteres.");return}
+    setCloudStatus(mode==="signup"?"Creando cuenta…":"Iniciando sesión…","");
     const res=mode==="signup"?await cloudClient.auth.signUp({email,password}):await cloudClient.auth.signInWithPassword({email,password});
-    if(res.error){alert(res.error.message);return}
-    cloudUser=res.data.user||res.data.session?.user||null;await updateCloudUI();
-    if(mode==="signup"&&!res.data.session){alert("Cuenta creada. Confirma tu email antes de iniciar sesión.");return}
-    if(cloudUser)await guardedSync();
+    if(res.error){cloudSession=null;cloudUser=null;await updateCloudUI();alert(authMessage(res.error));return}
+    // A user object alone is NOT a logged-in session. MFA must never run without a bearer access token.
+    cloudSession=res.data?.session||null;cloudUser=cloudSession?.user||null;
+    if(mode==="signup"&&!cloudSession){
+      await updateCloudUI();setCloudStatus("Cuenta creada. Confirma el email y después pulsa Entrar.","good");
+      alert("Cuenta creada. Revisa tu correo y confirma la cuenta. Después vuelve aquí y pulsa Entrar.");return;
+    }
+    if(!await validSession()){cloudSession=null;cloudUser=null;await updateCloudUI();alert("Supabase no devolvió una sesión válida. Vuelve a iniciar sesión.");return}
+    await updateCloudUI();await guardedSync();
   }
   async function guardedSync(){
-    if(!cloudClient||!cloudUser)return;
+    if(!await validSession()){cloudSession=null;cloudUser=null;await updateCloudUI();return}
     try{
       const aal=await getAal();
-      if(aal.nextLevel==="aal2"&&aal.currentLevel!=="aal2"){setCloudStatus("2FA requerido para acceder a los datos de la nube.","bad");await refreshMfaUI();return}
+      if(aal.currentLevel!=="aal2"){
+        setCloudStatus(aal.nextLevel==="aal2"?"Introduce tu código 2FA para desbloquear la sincronización.":"Activa 2FA para habilitar la sincronización segura.","bad");
+        await refreshMfaUI();return;
+      }
       await syncCloud();
-    }catch(e){setCloudStatus("Seguridad: "+e.message,"bad")}
+    }catch(e){setCloudStatus("Seguridad: "+authMessage(e),"bad")}
   }
   async function syncCloud(){
-    if(!cloudClient||!cloudUser||cloudBusy)return;cloudBusy=true;setCloudStatus("Sincronizando...","");
+    if(!cloudClient||!cloudUser||!cloudSession||cloudBusy)return;cloudBusy=true;setCloudStatus("Sincronizando…","");
     try{
       const {data,error}=await cloudClient.from("app_states").select("payload,updated_at").eq("user_id",cloudUser.id).maybeSingle();
       if(error)throw error;
@@ -1723,37 +1753,46 @@ if("serviceWorker" in navigator){
         const {error:upErr}=await cloudClient.from("app_states").upsert({user_id:cloudUser.id,payload:db},{onConflict:"user_id"});if(upErr)throw upErr;
       }
       setCloudStatus("Todo sincronizado · "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),"good");
-    }catch(e){console.warn(e);setCloudStatus("Sin sincronizar: "+e.message,"bad")}finally{cloudBusy=false}
+    }catch(e){
+      console.warn(e);
+      const msg=(e?.message||"").includes("permission denied")?"Acceso bloqueado por seguridad. Verifica el 2FA y vuelve a sincronizar.":e.message;
+      setCloudStatus("Sin sincronizar: "+msg,"bad");
+    }finally{cloudBusy=false}
   }
   async function startMfa(){
     try{
-      const {data:list}=await cloudClient.auth.mfa.listFactors();
-      for(const f of (list?.totp||[]).filter(x=>x.status!=="verified")) await cloudClient.auth.mfa.unenroll({factorId:f.id});
-      const {data,error}=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});
-      if(error)throw error;
-      pendingMfaFactor=data; mfaEnroll.classList.remove("hidden");mfaQr.innerHTML=data.totp.qr_code;
+      if(!await validSession()){alert("Primero debes iniciar sesión correctamente.");return}
+      // Remove only abandoned, unverified enrollments.
+      const {data:list,error:listErr}=await cloudClient.auth.mfa.listFactors();if(listErr)throw listErr;
+      const verified=(list?.totp||[]).find(x=>x.status==="verified");
+      if(verified){pendingMfaFactor=verified;await refreshMfaUI();alert("2FA ya está activado. Introduce el código de 6 dígitos.");return}
+      for(const f of (list?.totp||[]).filter(x=>x.status!=="verified")){const r=await cloudClient.auth.mfa.unenroll({factorId:f.id});if(r.error)console.warn(r.error)}
+      const {data,error}=await cloudClient.auth.mfa.enroll({factorType:"totp",friendlyName:"Moi Finanzas"});if(error)throw error;
+      pendingMfaFactor=data;mfaEnroll.classList.remove("hidden");mfaQr.innerHTML=data.totp.qr_code;
       mfaSetup.classList.add("hidden");mfaVerify.classList.remove("hidden");
-      mfaStatus.textContent="Escanea el QR y verifica el primer código.";
-    }catch(e){alert("No se pudo activar 2FA: "+e.message)}
+      mfaStatus.textContent="Escanea el QR con tu app autenticadora y escribe el código de 6 dígitos.";
+    }catch(e){alert("No se pudo activar 2FA: "+authMessage(e))}
   }
   async function verifyMfa(){
-    const code=mfaCode.value.trim();
-    if(!/^\d{6}$/.test(code)){alert("Introduce el código de 6 dígitos.");return}
+    const code=mfaCode.value.replace(/\D/g,"");
+    if(!/^\d{6}$/.test(code)){alert("Introduce exactamente los 6 dígitos del autenticador.");return}
     try{
-      if(!pendingMfaFactor){const {data}=await cloudClient.auth.mfa.listFactors();pendingMfaFactor=(data?.totp||[]).find(f=>f.status==="verified")||(data?.totp||[])[0]}
-      if(!pendingMfaFactor)throw new Error("No hay un factor 2FA disponible.");
+      if(!await validSession())throw new Error("La sesión ha caducado. Inicia sesión otra vez.");
+      if(!pendingMfaFactor){const {data,error}=await cloudClient.auth.mfa.listFactors();if(error)throw error;pendingMfaFactor=(data?.totp||[]).find(f=>f.status==="verified")||(data?.totp||[])[0]}
+      if(!pendingMfaFactor)throw new Error("No hay un factor 2FA configurado. Pulsa Activar 2FA.");
       const {data:challenge,error:chErr}=await cloudClient.auth.mfa.challenge({factorId:pendingMfaFactor.id});if(chErr)throw chErr;
-      const {error}=await cloudClient.auth.mfa.verify({factorId:pendingMfaFactor.id,challengeId:challenge.id,code});if(error)throw error;
-      mfaCode.value="";mfaEnroll.classList.add("hidden");await refreshMfaUI();await guardedSync();
-    }catch(e){alert("Código no válido o caducado: "+e.message)}
+      const {data:verified,error}=await cloudClient.auth.mfa.verify({factorId:pendingMfaFactor.id,challengeId:challenge.id,code});if(error)throw error;
+      if(verified?.access_token){cloudSession={...(cloudSession||{}),...verified};}
+      await validSession();mfaCode.value="";mfaEnroll.classList.add("hidden");await refreshMfaUI();await guardedSync();
+    }catch(e){alert("No se pudo verificar 2FA: "+authMessage(e))}
   }
   function scheduleCloud(){clearTimeout(cloudTimer);cloudTimer=setTimeout(guardedSync,900)}
   const baseSaveDB=saveDB;
-  saveDB=function(){const r=baseSaveDB();if(cloudUser&&navigator.onLine)scheduleCloud();return r};
+  saveDB=function(){const r=baseSaveDB();if(cloudSession&&navigator.onLine)scheduleCloud();return r};
   cloudSignIn.onclick=()=>cloudLogin("signin");cloudSignUp.onclick=()=>cloudLogin("signup");
-  cloudSignOut.onclick=async()=>{if(cloudClient)await cloudClient.auth.signOut();cloudUser=null;pendingMfaFactor=null;await updateCloudUI()};
+  cloudSignOut.onclick=async()=>{if(cloudClient)await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;pendingMfaFactor=null;cloudPassword.value="";await updateCloudUI()};
   cloudSyncNow.onclick=()=>guardedSync();mfaSetup.onclick=startMfa;mfaVerify.onclick=verifyMfa;
-  window.addEventListener("online",()=>{if(cloudUser)guardedSync()});
+  window.addEventListener("online",()=>{if(cloudSession)guardedSync()});
   initCloud();
 
   // Re-render after extension initialization.
