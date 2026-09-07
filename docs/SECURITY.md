@@ -20,7 +20,7 @@ Para producción:
 - CAPTCHA/rate limiting para altas e inicio de sesión.
 - Recuperación de contraseña mediante flujo de Supabase.
 - Lista cerrada de redirect URLs.
-- MFA como mejora posterior, especialmente si se incorporan datos financieros más sensibles.
+- MFA TOTP obligatorio para acceder o modificar datos financieros en la nube (AAL2).
 
 ## Autorización
 
@@ -28,7 +28,7 @@ La tabla `app_states` usa Row Level Security (RLS).
 
 Principio fundamental:
 
-> Un usuario autenticado solo puede leer o modificar una fila cuyo `user_id` coincida con `auth.uid()`.
+> Un usuario autenticado solo puede leer o modificar una fila cuyo `user_id` coincida con `auth.uid()` y cuya sesión haya alcanzado AAL2 mediante 2FA.
 
 No existen políticas de acceso a datos financieros para usuarios anónimos.
 
@@ -43,6 +43,8 @@ GitHub contiene únicamente código. No debe contener:
 - exportaciones financieras de clientes.
 
 La URL del proyecto y la anon/publishable key de Supabase pueden formar parte del cliente porque RLS es quien aplica la autorización real.
+
+La copia en Supabase debe describirse como copia protegida en la nube, no como cifrado de extremo a extremo. El MVP no implementa E2EE propio.
 
 ## Registro y auditoría
 
