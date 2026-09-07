@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v9-startup-recovery-fix";
+const CACHE = "moi-finanzas-v10-hybrid-budget";
 const CORE = [
   "./",
   "./index.html",
@@ -6,7 +6,8 @@ const CORE = [
   "./icon-192.png",
   "./icon-512.png",
   "./icon-maskable-512.png",
-  "./apple-touch-icon.png"
+  "./apple-touch-icon.png",
+  "./supabase-config.js"
 ];
 
 self.addEventListener("install", event => {
