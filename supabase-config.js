@@ -1,7 +1,6 @@
 // Moi Finanzas — configuración pública de Supabase.
-// IMPORTANTE: la anon/publishable key es pública por diseño. Nunca pongas aquí la service_role key.
-// Cuando creemos el proyecto Supabase, sustituiremos estos dos valores.
+// La publishable key es pública por diseño. Nunca poner aquí service_role ni secret keys.
 window.MOI_SUPABASE = {
-  url: "",
-  anonKey: ""
+  url: "https://oxqafuddbkzdqnqlgfyd.supabase.co",
+  anonKey: "sb_publishable_DHXl-sFflvHKdaLgVMrnPA_5Bh4s2pS"
 };
