@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v150-persistence-stable-2";
+const CACHE = "moi-finanzas-v151-project-edit-ux";
 const CORE = [
   "./",
   "./index.html",
