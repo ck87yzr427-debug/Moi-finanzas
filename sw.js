@@ -1,4 +1,4 @@
-const CACHE = "moi-finanzas-v151-project-edit-ux";
+const CACHE = "moi-finanzas-v160-work-assistants";
 const CORE = [
   "./",
   "./index.html",
@@ -7,7 +7,8 @@ const CORE = [
   "./icon-512.png",
   "./icon-maskable-512.png",
   "./apple-touch-icon.png",
-  "./supabase-config.js"
+  "./supabase-config.js",
+  "./work-assistants.js"
 ];
 
 self.addEventListener("install", event => {
@@ -26,6 +27,19 @@ self.addEventListener("activate", event => {
   );
 });
 
+function withWorkAssistants(resp){
+  if(!resp || !resp.ok) return resp;
+  return resp.text().then(html => {
+    if(!html.includes("work-assistants.js")){
+      html = html.replace("</body>", '<script src="./work-assistants.js"></script>\n</body>');
+    }
+    const headers = new Headers(resp.headers);
+    headers.set("content-type", "text/html; charset=utf-8");
+    headers.delete("content-length");
+    return new Response(html,{status:resp.status,statusText:resp.statusText,headers});
+  });
+}
+
 self.addEventListener("fetch", event => {
   if(event.request.method !== "GET") return;
   const req=event.request;
@@ -33,18 +47,21 @@ self.addEventListener("fetch", event => {
   if(req.mode === "navigate"){
     event.respondWith(
       fetch(req,{cache:"no-store"})
-        .then(resp=>{
-          const copy=resp.clone();
-          caches.open(CACHE).then(cache=>cache.put("./index.html",copy));
-          return resp;
-        })
-        .catch(()=>caches.match("./index.html"))
+        .then(resp => withWorkAssistants(resp.clone()).then(injected => {
+          const cacheCopy=injected.clone();
+          caches.open(CACHE).then(cache=>cache.put("./index.html",cacheCopy));
+          return injected;
+        }))
+        .catch(()=>caches.match("./index.html").then(resp=>withWorkAssistants(resp)))
     );
     return;
   }
 
-  if(new URL(req.url).pathname.endsWith("/supabase-config.js")){
-    event.respondWith(fetch(req,{cache:"no-store"}).catch(()=>caches.match(req)));
+  if(new URL(req.url).pathname.endsWith("/supabase-config.js") || new URL(req.url).pathname.endsWith("/work-assistants.js")){
+    event.respondWith(fetch(req,{cache:"no-store"}).then(resp=>{
+      if(resp && resp.status===200){const copy=resp.clone();caches.open(CACHE).then(cache=>cache.put(req,copy));}
+      return resp;
+    }).catch(()=>caches.match(req)));
     return;
   }
 
